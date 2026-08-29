@@ -1,0 +1,28 @@
+# Environment & Secrets
+.env
+.env.*
+*.key
+*.pem
+*.token
+
+# Temporary and Output Downloads
+downloads/
+*.zip
+*.mp3
+*.m4a
+*.webm
+*.opus
+
+# Logs and Run data
+*.log
+nohup.out
+
+# Python & Caches
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# OS specific
+.DS_Store
+Thumbs.db

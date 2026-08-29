@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1.0, user-scalable=no" />
+  <title>AudioRip — High-Fidelity Audio Extractor</title>
+  <meta name="description" content="Clean, high-performance audio converter and playlist extractor." />
+  
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet" />
+  
+  <link rel="stylesheet" href="/static/style.css" />
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='%23ffffff'><path d='M12 3v10.55c-.59-.34-1.27-.55-2-.55-2.21 0-4 1.79-4 4s1.79 4 4 4 4-1.79 4-4V7h4V3h-6z'/></svg>" />
+</head>
+<body>
+
+  <div class="shell">
+
+    <!-- ── Header ── -->
+    <header class="masthead">
+      <div class="app-symbol">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+      </div>
+      <h1 class="app-headline">AudioRip</h1>
+      <p class="app-caption">Extract lossless-quality MP3s from YouTube tracks &amp; playlists</p>
+    </header>
+
+    <!-- ── Mode Controller ── -->
+    <nav class="mode-bar" role="tablist" aria-label="Conversion Mode">
+      <button class="mode-tab active" role="tab" aria-selected="true" data-tab="single" id="tab-single">
+        <span>Single</span>
+      </button>
+      <button class="mode-tab" role="tab" aria-selected="false" data-tab="playlist" id="tab-playlist">
+        <span>Playlist</span>
+      </button>
+      <button class="mode-tab" role="tab" aria-selected="false" data-tab="multi" id="tab-multi">
+        <span>Batch / Mixed</span>
+      </button>
+    </nav>
+
+    <!-- ── Main Card Deck ── -->
+    <main class="deck">
+
+      <!-- ── Single Track Viewport ── -->
+      <div class="viewport active" id="panel-single" role="tabpanel">
+        <div class="field-label">Song Link</div>
+        <div class="field-box">
+          <input
+            type="url"
+            id="single-url"
+            class="field-input"
+            placeholder="Paste YouTube or YT Music link…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="field-status" id="single-spinner" style="display:none">
+            <div class="spin-ring"></div>
+          </div>
+        </div>
+
+        <div class="quality-selector">
+          <span class="quality-title">Bitrate:</span>
+          <div class="quality-chips" id="single-chips">
+            <button type="button" class="chip active" data-quality="320">320 kbps</button>
+            <button type="button" class="chip" data-quality="192">192 kbps</button>
+            <button type="button" class="chip" data-quality="128">128 kbps</button>
+          </div>
+          <input type="hidden" id="single-quality" value="320" />
+        </div>
+
+        <div id="single-preview"></div>
+        <div id="error-single" class="error-shelf"></div>
+
+        <div class="action-dock">
+          <button class="action-btn" id="single-download-btn" style="display:none">
+            <span>Convert</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Playlist Viewport ── -->
+      <div class="viewport" id="panel-playlist" role="tabpanel">
+        <div class="field-label">Playlist Link</div>
+        <div class="field-box">
+          <input
+            type="url"
+            id="playlist-url"
+            class="field-input"
+            placeholder="Paste YouTube playlist link…"
+            autocomplete="off"
+            spellcheck="false"
+          />
+          <div class="field-status" id="playlist-spinner" style="display:none">
+            <div class="spin-ring"></div>
+          </div>
+        </div>
+
+        <div class="quality-selector">
+          <span class="quality-title">Bitrate:</span>
+          <div class="quality-chips" id="playlist-chips">
+            <button type="button" class="chip active" data-quality="320">320 kbps</button>
+            <button type="button" class="chip" data-quality="192">192 kbps</button>
+            <button type="button" class="chip" data-quality="128">128 kbps</button>
+          </div>
+          <input type="hidden" id="playlist-quality" value="320" />
+        </div>
+
+        <div id="playlist-preview"></div>
+        <div id="error-playlist" class="error-shelf"></div>
+
+        <div class="action-dock">
+          <button class="action-btn" id="playlist-download-btn" style="display:none">
+            <span>Convert All</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- ── Multi / Mixed Batch Viewport ── -->
+      <div class="viewport" id="panel-multi" role="tabpanel">
+        <div class="field-label">Mixed Links (Playlists &amp; Songs)</div>
+        <div class="field-box-multiline">
+          <textarea
+            id="multi-urls"
+            class="field-textarea"
+            placeholder="Paste multiple playlist &amp; song links (one per line)&#10;https://youtube.com/playlist?list=…&#10;https://music.youtube.com/watch?v=…&#10;https://youtu.be/…"
+            spellcheck="false"
+          ></textarea>
+        </div>
+
+        <div class="multi-toolbar">
+          <span class="link-count" id="multi-link-count">0 links</span>
+          <button type="button" class="fetch-btn" id="multi-fetch-btn">
+            <span>Fetch &amp; Inspect</span>
+          </button>
+        </div>
+
+        <div class="quality-selector">
+          <span class="quality-title">Bitrate:</span>
+          <div class="quality-chips" id="multi-chips">
+            <button type="button" class="chip active" data-quality="320">320 kbps</button>
+            <button type="button" class="chip" data-quality="192">192 kbps</button>
+            <button type="button" class="chip" data-quality="128">128 kbps</button>
+          </div>
+          <input type="hidden" id="multi-quality" value="320" />
+        </div>
+
+        <!-- Multi breakdown preview -->
+        <div id="multi-preview"></div>
+        <div id="error-multi" class="error-shelf"></div>
+
+        <div class="action-dock">
+          <button class="action-btn" id="multi-download-btn" style="display:none">
+            <span>Convert All</span>
+          </button>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ── Live Progress Section ── -->
+    <div id="progress-stage"></div>
+
+    <!-- ── Clean Minimal Footer ── -->
+    <footer class="footer">
+      <div class="credit">
+        <span>Made with</span>
+        <span class="heart">❤️</span>
+        <span>by</span>
+        <a
+          href="https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg=="
+          target="_blank"
+          rel="noopener noreferrer"
+          class="handle"
+        >sujalbhure</a>
+      </div>
+    </footer>
+
+  </div>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: audiorip-backend
+    runtime: docker
+    plan: free
+    region: oregon
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 5000
