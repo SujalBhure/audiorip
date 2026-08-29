@@ -156,6 +156,16 @@ def inspect_url_entity(url: str) -> dict:
         'extract_flat': 'in_playlist',
         'socket_timeout': 15,
         'nocheckcertificate': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'tv_embedded'],
+                'player_skip': ['webpage', 'configs'],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
     if os.path.exists(NODE_PATH):
         flat_opts['js_runtimes'] = {'node': {'path': NODE_PATH}}
@@ -285,6 +295,16 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
         'retry_sleep_functions': {'http': lambda n: 1},
         'nocheckcertificate': True,
         'prefer_ffmpeg': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'tv_embedded'],
+                'player_skip': ['webpage', 'configs'],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
     }
     if os.path.exists(NODE_PATH):
         ydl_opts['js_runtimes'] = {'node': {'path': NODE_PATH}}
