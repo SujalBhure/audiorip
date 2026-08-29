@@ -23,6 +23,16 @@ os.makedirs(DOWNLOADS_DIR, exist_ok=True)
 FFMPEG_PATH = shutil.which('ffmpeg') or '/usr/bin/ffmpeg'
 NODE_PATH = shutil.which('node') or '/usr/bin/node'
 
+# Optional Cookie File Support (for cloud environments)
+COOKIE_FILE = os.path.join(os.path.dirname(__file__), 'cookies.txt')
+if not os.path.exists(COOKIE_FILE) and os.environ.get('YOUTUBE_COOKIES'):
+    try:
+        with open('/tmp/cookies.txt', 'w') as cf:
+            cf.write(os.environ.get('YOUTUBE_COOKIES'))
+        COOKIE_FILE = '/tmp/cookies.txt'
+    except Exception:
+        pass
+
 # In-memory task store with thread safety
 tasks: dict = {}
 tasks_lock = threading.Lock()
@@ -49,19 +59,17 @@ def apply_security_headers(response):
     return response
 
 
-# ── Filename & Path Sanitization (Path Traversal Protection) ─────────────────
+# ── Filename & Path Sanitization ─────────────────────────────────────────────
 
 def sanitize_filename(name: str) -> str:
-    """Strip illegal characters and path separators to prevent path traversal."""
     cleaned = re.sub(r'[\\/*?:"<>|]', '_', name)
     cleaned = re.sub(r'[\r\n\t]', '', cleaned)
-    cleaned = re.sub(r'\.{2,}', '.', cleaned)  # Prevent ../
+    cleaned = re.sub(r'\.{2,}', '.', cleaned)
     cleaned = re.sub(r'\s+', ' ', cleaned).strip()
     return cleaned[:90] if cleaned else "track"
 
 
 def is_safe_path(target_path: str, base_dir: str = DOWNLOADS_DIR) -> bool:
-    """Ensure path cannot escape base_dir."""
     try:
         resolved_target = os.path.realpath(target_path)
         resolved_base = os.path.realpath(base_dir)
@@ -71,11 +79,9 @@ def is_safe_path(target_path: str, base_dir: str = DOWNLOADS_DIR) -> bool:
 
 
 def validate_youtube_url(url: str) -> bool:
-    """Validate URL is strictly YouTube to prevent SSRF against internal services."""
     if not url or len(url) > 500:
         return False
     clean = url.strip()
-    # Reject loopback, localhost, and raw private IP addresses
     if any(blocked in clean.lower() for blocked in ['localhost', '127.0.0.1', '0.0.0.0', '169.254.', '10.', '192.168.', '172.']):
         return False
     return bool(YOUTUBE_URL_REGEX.match(clean))
@@ -84,16 +90,15 @@ def validate_youtube_url(url: str) -> bool:
 # ── Automatic Background Garbage Collector ───────────────────────────────────
 
 def background_cleanup_reaper():
-    """Periodically removes stale task folders older than 15 minutes to prevent disk exhaustion."""
     while True:
         try:
-            time.sleep(300)  # Check every 5 mins
+            time.sleep(300)
             now = time.time()
             with tasks_lock:
                 to_delete = []
                 for tid, task_data in list(tasks.items()):
                     created_time = task_data.get('created_at', now)
-                    if now - created_time > 900:  # 15 mins
+                    if now - created_time > 900:
                         to_delete.append(tid)
 
                 for tid in to_delete:
@@ -105,7 +110,6 @@ def background_cleanup_reaper():
             pass
 
 
-# Start reaper daemon
 threading.Thread(target=background_cleanup_reaper, daemon=True).start()
 
 
@@ -138,6 +142,31 @@ def make_progress_hook(task_id: str, song_index: int):
     return hook
 
 
+# ── Robust Multi-Client Extractor Helper (Bypasses Datacenter Bot Walls) ────
+
+def get_base_ydl_opts(client_type: str = 'android') -> dict:
+    opts = {
+        'quiet': True,
+        'no_warnings': True,
+        'socket_timeout': 20,
+        'nocheckcertificate': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': [client_type],
+            }
+        },
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'Accept-Language': 'en-US,en;q=0.9',
+        }
+    }
+    if os.path.exists(COOKIE_FILE):
+        opts['cookiefile'] = COOKIE_FILE
+    if os.path.exists(NODE_PATH):
+        opts['js_runtimes'] = {'node': {'path': NODE_PATH}}
+    return opts
+
+
 # ── URL Inspection Engine ───────────────────────────────────────────────────
 
 def inspect_url_entity(url: str) -> dict:
@@ -150,33 +179,31 @@ def inspect_url_entity(url: str) -> dict:
             'error': 'Please provide a valid YouTube or YouTube Music link.'
         }
     
-    flat_opts = {
-        'quiet': True,
-        'no_warnings': True,
-        'extract_flat': 'in_playlist',
-        'socket_timeout': 15,
-        'nocheckcertificate': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'tv_embedded'],
-                'player_skip': ['webpage', 'configs'],
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
+    clients = ['android', 'mweb', 'ios', 'web_embedded', 'tv_embedded']
+    last_error = None
+    info = None
+
+    for client in clients:
+        flat_opts = get_base_ydl_opts(client)
+        flat_opts['extract_flat'] = 'in_playlist'
+        try:
+            with yt_dlp.YoutubeDL(flat_opts) as ydl:
+                info = ydl.extract_info(url, download=False)
+            if info:
+                break
+        except Exception as e:
+            last_error = e
+            continue
+
+    if not info:
+        return {
+            'type': 'error',
+            'url': url,
+            'title': 'Error',
+            'error': str(last_error).split('ERROR:')[-1].strip() if last_error else 'Could not extract metadata.'
         }
-    }
-    if os.path.exists(NODE_PATH):
-        flat_opts['js_runtimes'] = {'node': {'path': NODE_PATH}}
 
     try:
-        with yt_dlp.YoutubeDL(flat_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-
-        if not info:
-            return {'type': 'error', 'url': url, 'title': 'Not Found', 'error': 'Could not extract metadata.'}
-
         if info.get('_type') == 'playlist':
             playlist_title = info.get('title') or "Playlist"
             entries = []
@@ -197,7 +224,7 @@ def inspect_url_entity(url: str) -> dict:
                 'uploader': info.get('uploader') or info.get('channel', ''),
                 'count': len(entries),
                 'thumbnail': info.get('thumbnail') or (entries[0].get('thumbnail') if entries else None),
-                'entries': entries[:250]  # Safe cap
+                'entries': entries[:250]
             }
         else:
             vid_id = info.get('id', '')
@@ -275,94 +302,89 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
     temp_base = f"track_{track_idx:04d}"
     temp_out = os.path.join(task_dir, f"{temp_base}.%(ext)s")
 
-    ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio/best',
-        'outtmpl': temp_out,
-        'ffmpeg_location': FFMPEG_PATH,
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': quality,
-        }],
-        'progress_hooks': [make_progress_hook(task_id, track_idx)],
-        'quiet': True,
-        'no_warnings': True,
-        'noplaylist': True,
-        'socket_timeout': 25,
-        'retries': 15,
-        'fragment_retries': 15,
-        'concurrent_fragment_downloads': 4,
-        'retry_sleep_functions': {'http': lambda n: 1},
-        'nocheckcertificate': True,
-        'prefer_ffmpeg': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios', 'tv_embedded'],
-                'player_skip': ['webpage', 'configs'],
-            }
-        },
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-            'Accept-Language': 'en-US,en;q=0.9',
+    clients = ['android', 'mweb', 'ios', 'tv_embedded']
+    last_error = None
+    success = False
+
+    for client in clients:
+        ydl_opts = get_base_ydl_opts(client)
+        ydl_opts.update({
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'outtmpl': temp_out,
+            'ffmpeg_location': FFMPEG_PATH,
+            'postprocessors': [{
+                'key': 'FFmpegExtractAudio',
+                'preferredcodec': 'mp3',
+                'preferredquality': quality,
+            }],
+            'progress_hooks': [make_progress_hook(task_id, track_idx)],
+            'noplaylist': True,
+            'retries': 15,
+            'fragment_retries': 15,
+            'concurrent_fragment_downloads': 4,
+            'retry_sleep_functions': {'http': lambda n: 1},
+            'prefer_ffmpeg': True,
+        })
+
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(item['url'], download=True)
+                track_title = info.get('title') or item.get('title') or f"Track {track_idx+1}"
+                prog['title'] = track_title
+                success = True
+                break
+        except Exception as exc:
+            last_error = exc
+            continue
+
+    if not success:
+        prog['status'] = 'error'
+        prog['error'] = str(last_error).split('ERROR:')[-1].strip() if last_error else 'Download failed'
+        return None
+
+    expected_mp3 = os.path.join(task_dir, f"{temp_base}.mp3")
+    if os.path.exists(expected_mp3):
+        safe_title = sanitize_filename(prog['title'])
+        final_mp3 = os.path.join(task_dir, f"{safe_title}.mp3")
+        
+        collision_count = 1
+        while os.path.exists(final_mp3) and final_mp3 != expected_mp3:
+            final_mp3 = os.path.join(task_dir, f"{safe_title}_{collision_count}.mp3")
+            collision_count += 1
+
+        if expected_mp3 != final_mp3:
+            os.rename(expected_mp3, final_mp3)
+
+        prog['percent'] = 100
+        prog['status'] = 'done'
+        prog['speed'] = 'Done'
+        return {
+            'file_path': final_mp3,
+            'file_name': os.path.basename(final_mp3),
+            'subfolder': item.get('subfolder')
         }
-    }
-    if os.path.exists(NODE_PATH):
-        ydl_opts['js_runtimes'] = {'node': {'path': NODE_PATH}}
-
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(item['url'], download=True)
-            track_title = info.get('title') or item.get('title') or f"Track {track_idx+1}"
-            prog['title'] = track_title
-
-        expected_mp3 = os.path.join(task_dir, f"{temp_base}.mp3")
-        if os.path.exists(expected_mp3):
-            safe_title = sanitize_filename(prog['title'])
-            final_mp3 = os.path.join(task_dir, f"{safe_title}.mp3")
-            
-            collision_count = 1
-            while os.path.exists(final_mp3) and final_mp3 != expected_mp3:
-                final_mp3 = os.path.join(task_dir, f"{safe_title}_{collision_count}.mp3")
-                collision_count += 1
-
-            if expected_mp3 != final_mp3:
-                os.rename(expected_mp3, final_mp3)
-
+    else:
+        found = [f for f in os.listdir(task_dir) if f.startswith(temp_base) and f.endswith('.mp3')]
+        if found:
+            mp3_path = os.path.join(task_dir, found[0])
+            safe_title = sanitize_filename(prog['title']) + ".mp3"
+            dst = os.path.join(task_dir, safe_title)
+            os.rename(mp3_path, dst)
             prog['percent'] = 100
             prog['status'] = 'done'
             prog['speed'] = 'Done'
             return {
-                'file_path': final_mp3,
-                'file_name': os.path.basename(final_mp3),
+                'file_path': dst,
+                'file_name': safe_title,
                 'subfolder': item.get('subfolder')
             }
         else:
-            found = [f for f in os.listdir(task_dir) if f.startswith(temp_base) and f.endswith('.mp3')]
-            if found:
-                mp3_path = os.path.join(task_dir, found[0])
-                safe_title = sanitize_filename(prog['title']) + ".mp3"
-                dst = os.path.join(task_dir, safe_title)
-                os.rename(mp3_path, dst)
-                prog['percent'] = 100
-                prog['status'] = 'done'
-                prog['speed'] = 'Done'
-                return {
-                    'file_path': dst,
-                    'file_name': safe_title,
-                    'subfolder': item.get('subfolder')
-                }
-            else:
-                prog['status'] = 'error'
-                prog['error'] = 'Audio extraction failed'
-                return None
-
-    except Exception as exc:
-        prog['status'] = 'error'
-        prog['error'] = str(exc).split('ERROR:')[-1].strip()
-        return None
+            prog['status'] = 'error'
+            prog['error'] = 'Audio extraction failed'
+            return None
 
 
-# ── Master Download Worker (Structured Folders) ──────────────────────────────
+# ── Master Download Worker ───────────────────────────────────────────────────
 
 def run_download_task(task_id: str, urls: list[str], quality: str):
     task = tasks[task_id]
@@ -410,7 +432,6 @@ def run_download_task(task_id: str, urls: list[str], quality: str):
     task['status'] = 'converting'
 
     converted_results = []
-    # Up to 6 simultaneous workers for max speed
     max_workers = min(6, len(flat_queue))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -521,7 +542,6 @@ def start_download():
 
 @app.route('/api/progress/<task_id>')
 def stream_progress(task_id):
-    # Strict UUID validation to prevent path traversal / injection
     if not UUID_REGEX.match(task_id):
         return jsonify({'error': 'Invalid task ID'}), 400
 
