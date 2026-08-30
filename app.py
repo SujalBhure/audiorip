@@ -189,7 +189,7 @@ def inspect_url_entity(url: str) -> dict:
             flat_opts['extract_flat'] = 'in_playlist'
         try:
             with yt_dlp.YoutubeDL(flat_opts) as ydl:
-                info = ydl.extract_info(url, download=False)
+                info = ydl.extract_info(url, download=False, process=False)
             if info:
                 break
         except Exception as e:
