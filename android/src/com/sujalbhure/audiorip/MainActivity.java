@@ -6,6 +6,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.ContentValues;
 import android.media.MediaScannerConnection;
 import android.net.Uri;
 import android.os.Build;
@@ -15,6 +16,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.VibrationEffect;
 import android.os.Vibrator;
+import android.provider.MediaStore;
 import android.util.Base64;
 import android.view.View;
 import android.view.Window;
@@ -29,16 +31,39 @@ import android.widget.Toast;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FileInputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import com.chaquo.python.Python;
+import com.chaquo.python.android.AndroidPlatform;
+import com.arthenica.ffmpegkit.FFmpegKit;
+import com.arthenica.ffmpegkit.FFmpegSession;
+import com.arthenica.ffmpegkit.ReturnCode;
+
+import org.json.JSONArray;
+import org.json.JSONObject;
 
 public class MainActivity extends Activity {
 
     private WebView webView;
     private String sharedUrl = null;
+    private final ExecutorService worker = Executors.newSingleThreadExecutor();
 
     @SuppressLint({"SetJavaScriptEnabled", "JavascriptInterface"})
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        if (!Python.isStarted()) {
+            Python.start(new AndroidPlatform(this));
+        }
+        if (Build.VERSION.SDK_INT <= Build.VERSION_CODES.P
+                && checkSelfPermission(android.Manifest.permission.WRITE_EXTERNAL_STORAGE)
+                != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{android.Manifest.permission.WRITE_EXTERNAL_STORAGE}, 1001);
+        }
 
         // Edge-to-Edge immersive Dark Theme
         Window window = getWindow();
@@ -205,6 +230,128 @@ public class MainActivity extends Activity {
                     Toast.makeText(context, "Could not open link", Toast.LENGTH_SHORT).show();
                 }
             });
+        }
+
+        @JavascriptInterface
+        public void inspectOnDevice(final String url) {
+            worker.execute(() -> {
+                try {
+                    String data = Python.getInstance().getModule("audiorip_native")
+                        .callAttr("inspect", url).toString();
+                    emit("info", new JSONObject(data));
+                } catch (Exception e) {
+                    emitError("Could not inspect this link: " + friendlyError(e));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void inspectManyOnDevice(final String urlsJson) {
+            worker.execute(() -> {
+                try {
+                    String data = Python.getInstance().getModule("audiorip_native")
+                        .callAttr("inspect_many", urlsJson).toString();
+                    emit("multiInfo", new JSONObject(data));
+                } catch (Exception e) {
+                    emitError("Could not inspect these links: " + friendlyError(e));
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void convertOnDevice(final String urlsJson, final String bitrate) {
+            worker.execute(() -> {
+                File workDir = new File(getCacheDir(), "audiorip-downloads");
+                try {
+                    emitProgress("Extracting & downloading audio streams…", 10);
+                    String response = Python.getInstance().getModule("audiorip_native")
+                        .callAttr("download", urlsJson, workDir.getAbsolutePath()).toString();
+                    JSONArray files = new JSONObject(response).getJSONArray("files");
+                    int total = files.length();
+                    for (int i = 0; i < total; i++) {
+                        JSONObject item = files.getJSONObject(i);
+                        String title = item.optString("title", "audio");
+                        File input = new File(item.getString("path"));
+                        File output = new File(workDir, "converted-" + System.nanoTime() + ".mp3");
+                        emitProgress("Encoding " + (i + 1) + "/" + total + " (" + safeBitrate(bitrate) + "kbps MP3)…", 25 + (int) (70.0 * i / total));
+                        String command = "-y -i " + quote(input.getAbsolutePath())
+                            + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
+                            + "k -map_metadata 0 " + quote(output.getAbsolutePath());
+                        FFmpegSession session = FFmpegKit.execute(command);
+                        if (!ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
+                            // Fallback in case metadata copying fails on some unusual stream
+                            String fallbackCmd = "-y -i " + quote(input.getAbsolutePath())
+                                + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
+                                + "k " + quote(output.getAbsolutePath());
+                            session = FFmpegKit.execute(fallbackCmd);
+                            if (!ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
+                                throw new IllegalStateException("MP3 conversion failed for: " + title);
+                            }
+                        }
+                        saveMp3(output, title + ".mp3");
+                        if (input.exists()) input.delete();
+                        if (output.exists()) output.delete();
+                    }
+                    emitProgress("Saved to Music/AudioRip", 100);
+                    emit("complete", new JSONObject().put("count", total));
+                } catch (Exception e) {
+                    emitError("Conversion failed: " + friendlyError(e));
+                } finally {
+                    File[] remaining = workDir.listFiles();
+                    if (remaining != null) for (File file : remaining) file.delete();
+                }
+            });
+        }
+
+        private void saveMp3(File source, String filename) throws Exception {
+            filename = filename.replaceAll("[\\\\/:*?\"<>|]", "_");
+            if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+                File musicDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_MUSIC), "AudioRip");
+                if (!musicDir.exists() && !musicDir.mkdirs()) throw new IllegalStateException("Could not create Music/AudioRip");
+                File destination = new File(musicDir, filename);
+                try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(destination)) {
+                    byte[] buffer = new byte[64 * 1024];
+                    for (int read; (read = in.read(buffer)) != -1;) out.write(buffer, 0, read);
+                }
+                MediaScannerConnection.scanFile(context, new String[]{destination.getAbsolutePath()}, new String[]{"audio/mpeg"}, null);
+                return;
+            }
+            ContentValues values = new ContentValues();
+            values.put(MediaStore.Audio.Media.DISPLAY_NAME, filename);
+            values.put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg");
+            values.put(MediaStore.Audio.Media.RELATIVE_PATH, "Music/AudioRip");
+            values.put(MediaStore.Audio.Media.IS_PENDING, 1);
+            Uri uri = getContentResolver().insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+            if (uri == null) throw new IllegalStateException("Could not create the music file");
+            try (InputStream in = new FileInputStream(source); OutputStream out = getContentResolver().openOutputStream(uri)) {
+                byte[] buffer = new byte[64 * 1024];
+                for (int read; (read = in.read(buffer)) != -1;) out.write(buffer, 0, read);
+            } catch (Exception e) {
+                getContentResolver().delete(uri, null, null);
+                throw e;
+            }
+            values.clear();
+            values.put(MediaStore.Audio.Media.IS_PENDING, 0);
+            getContentResolver().update(uri, values, null, null);
+        }
+
+        private String safeBitrate(String value) { return ("128".equals(value) || "192".equals(value) || "320".equals(value)) ? value : "192"; }
+        private String quote(String value) { return "'" + value.replace("'", "\\\\'") + "'"; }
+        private String friendlyError(Exception e) { String text = e.getMessage(); return (text == null || text.isEmpty()) ? "Please check the link and connection." : text.substring(0, Math.min(220, text.length())); }
+        private void emitProgress(String message, int percent) {
+            try { emit("progress", new JSONObject().put("message", message).put("percent", percent)); }
+            catch (Exception ignored) {}
+        }
+        private void emitError(String message) {
+            try { emit("error", new JSONObject().put("message", message)); }
+            catch (Exception ignored) {}
+        }
+        private void emit(String kind, JSONObject data) {
+            try {
+                data.put("kind", kind);
+                String script = "window.onNativeEvent && window.onNativeEvent(" + JSONObject.quote(data.toString()) + ");";
+                new Handler(Looper.getMainLooper()).post(() -> webView.evaluateJavascript(script, null));
+            } catch (Exception ignored) {}
         }
 
         @JavascriptInterface

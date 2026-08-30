@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-  <title>AudioRip Pro</title>
+  <title>AudioRip</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
@@ -24,10 +24,10 @@
         </div>
         <div class="brand-text">
           <h1 class="brand-title">Audio<span>Rip</span></h1>
-          <p class="brand-badge" id="versionBadge" title="Tap to check for updates">PRO v1.0</p>
+          <p class="brand-badge" id="versionBadge" title="Tap to check for updates">v1.1.0</p>
         </div>
       </div>
-      <p class="brand-subtitle">High-fidelity 320kbps YouTube & Music audio engine</p>
+      <p class="brand-subtitle">On-device MP3 conversion engine · Android 7+</p>
     </header>
 
     <!-- Segmented Mode Switcher with Sliding Pill Animation -->
@@ -88,7 +88,13 @@
 
       <!-- Audio Quality Selector -->
       <div class="quality-section">
-        <label class="section-label">AUDIO BITRATE</label>
+        <div class="section-label-row">
+          <label class="section-label">AUDIO BITRATE</label>
+          <button class="autodownload-toggle active" id="autoDownloadToggle" title="Toggle automatic download when link is resolved">
+            <span class="toggle-dot"></span>
+            <span class="toggle-text">⚡ Auto-Download</span>
+          </button>
+        </div>
         <div class="quality-chips" id="qualitySelector">
           <button class="chip active" data-quality="320">
             <span class="chip-rate">320 kbps</span>
@@ -170,7 +176,7 @@
     <footer class="app-footer">
       <a href="https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg==" target="_blank" rel="noopener noreferrer" class="creator-link" id="creatorLink">
         <span>Made with</span>
-        <span class="heart-pulse">❤️</span>
+        <span class="heart-pulse">&#10084;&#65039;</span>
         <span>by <strong class="creator-name">sujalbhure</strong></span>
       </a>
     </footer>
@@ -203,7 +209,7 @@
         <div class="changelog-group">
           <h4 class="changelog-heading">🐛 BUG FIXES & IMPROVEMENTS</h4>
           <ul class="changelog-list" id="bugFixesList">
-            <li>Fixed YouTube BotGuard challenge bypass on mobile streams</li>
+          <li>Clearer on-device errors when a source blocks extraction</li>
             <li>Optimized 320kbps MP3 ID3 tag embedding & metadata discovery</li>
           </ul>
         </div>

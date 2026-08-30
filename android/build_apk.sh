@@ -26,8 +26,8 @@ echo "[1/5] Generating R.java with AAPT..."
     -I "$ANDROID_JAR" \
     --min-sdk-version 26 \
     --target-sdk-version 35 \
-    --version-code 1 \
-    --version-name "1.0.0"
+    --version-code 2 \
+    --version-name "1.0.1"
 
 # 2. Compile Java Source Code
 echo "[2/5] Compiling Java source files..."
@@ -57,8 +57,8 @@ cd "$BUILD_DIR/dex"
     -F "$BUILD_DIR/unaligned.apk" \
     --min-sdk-version 26 \
     --target-sdk-version 35 \
-    --version-code 1 \
-    --version-name "1.0.0"
+    --version-code 2 \
+    --version-name "1.0.1"
 
 # Add classes.dex to APK
 zip -u -q "$BUILD_DIR/unaligned.apk" classes.dex

@@ -6,6 +6,8 @@ import zipfile
 import json
 import time
 import shutil
+import urllib.request
+from urllib.parse import urlencode
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from flask import Flask, render_template, request, jsonify, Response, send_file
@@ -19,8 +21,26 @@ CORS(app, resources={r"/api/*": {"origins": "*"}})
 
 DOWNLOADS_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), 'downloads'))
 os.makedirs(DOWNLOADS_DIR, exist_ok=True)
+YTDLP_CACHE_DIR = os.path.join(os.path.dirname(__file__), '.yt-dlp-cache')
+os.makedirs(YTDLP_CACHE_DIR, exist_ok=True)
 
-FFMPEG_PATH = shutil.which('ffmpeg') or '/usr/bin/ffmpeg'
+def find_ffmpeg_executable():
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+    found = shutil.which('ffmpeg')
+    if found:
+        return found
+    for fallback in ['/usr/bin/ffmpeg', '/usr/local/bin/ffmpeg', 'C:\\ffmpeg\\bin\\ffmpeg.exe']:
+        if os.path.exists(fallback):
+            return fallback
+    return 'ffmpeg'
+
+FFMPEG_PATH = find_ffmpeg_executable()
 NODE_PATH = shutil.which('node') or '/usr/bin/node'
 
 # Optional Cookie File Support (for cloud environments)
@@ -36,6 +56,21 @@ if not os.path.exists(COOKIE_FILE) and os.environ.get('YOUTUBE_COOKIES'):
 # In-memory task store with thread safety
 tasks: dict = {}
 tasks_lock = threading.Lock()
+
+# Cache lightweight inspection results so repeat pastes, retries, and batches do
+# not re-contact YouTube just to rediscover the same title and thumbnail.
+metadata_cache: dict = {}
+metadata_cache_lock = threading.Lock()
+METADATA_CACHE_TTL_SECONDS = 60 * 60
+
+# The former 6 track workers × 8 fragment workers × 4 FFmpeg threads could
+# create 192 concurrent workers on a small Render instance. Keep work bounded
+# by the host while still using parallel network and CPU work efficiently.
+CPU_COUNT = os.cpu_count() or 2
+METADATA_WORKERS = max(1, min(4, CPU_COUNT))
+TRACK_WORKERS = max(1, min(3, CPU_COUNT // 2 or 1))
+FRAGMENT_WORKERS = max(1, min(4, CPU_COUNT))
+FFMPEG_THREADS = max(1, min(2, CPU_COUNT // TRACK_WORKERS or 1))
 
 # Strict Validation Regexes
 UUID_REGEX = re.compile(r'^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$')
@@ -85,6 +120,26 @@ def validate_youtube_url(url: str) -> bool:
     if any(blocked in clean.lower() for blocked in ['localhost', '127.0.0.1', '0.0.0.0', '169.254.', '10.', '192.168.', '172.']):
         return False
     return bool(YOUTUBE_URL_REGEX.match(clean))
+
+
+def get_cached_metadata(url: str):
+    cache_key = url.strip()
+    with metadata_cache_lock:
+        cached = metadata_cache.get(cache_key)
+        if not cached:
+            return None
+        cached_at, payload = cached
+        if time.monotonic() - cached_at > METADATA_CACHE_TTL_SECONDS:
+            metadata_cache.pop(cache_key, None)
+            return None
+        return payload.copy()
+
+
+def remember_metadata(url: str, payload: dict) -> dict:
+    if payload.get('type') in {'single', 'playlist'}:
+        with metadata_cache_lock:
+            metadata_cache[url.strip()] = (time.monotonic(), payload.copy())
+    return payload
 
 
 # ── Automatic Background Garbage Collector ───────────────────────────────────
@@ -150,8 +205,10 @@ def get_base_ydl_opts(client_type: str = 'android') -> dict:
     opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 25,
+        'socket_timeout': 12,
         'nocheckcertificate': True,
+        'cachedir': YTDLP_CACHE_DIR,
+        'extractor_retries': 0,
         'http_headers': {
             'User-Agent': 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 7 Pro)',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -160,7 +217,9 @@ def get_base_ydl_opts(client_type: str = 'android') -> dict:
     if client_type and client_type != 'default':
         opts['extractor_args'] = {
             'youtube': {
-                'player_client': [client_type, 'ios', 'mweb'],
+                # Each outer attempt owns one client. Combining every client in
+                # every attempt multiplied slow failures and delayed fallbacks.
+                'player_client': [client_type],
             }
         }
     else:
@@ -183,7 +242,19 @@ def get_base_ydl_opts(client_type: str = 'android') -> dict:
     return opts
 
 
-# ── URL Inspection Engine ───────────────────────────────────────────────────
+# ── URL Inspection Engine (Lightning-Fast Multi-Tier) ────────────────────────
+
+def extract_youtube_id(url: str) -> str:
+    patterns = [
+        r'(?:v=|\/v\/|youtu\.be\/|embed\/|shorts\/)([a-zA-Z0-9_-]{11})',
+        r'[\?&]v=([a-zA-Z0-9_-]{11})'
+    ]
+    for p in patterns:
+        m = re.search(p, url)
+        if m:
+            return m.group(1)
+    return ''
+
 
 def inspect_url_entity(url: str) -> dict:
     url = url.strip()
@@ -194,15 +265,46 @@ def inspect_url_entity(url: str) -> dict:
             'title': 'Invalid Link',
             'error': 'Please provide a valid YouTube or YouTube Music link.'
         }
+
+    cached = get_cached_metadata(url)
+    if cached:
+        return cached
     
-    clients = ['android', 'ios', 'mweb', 'web_creator', 'web']
+    is_playlist = 'playlist' in url.lower() or 'list=' in url.lower()
+
+    # Tier 1: Instant oEmbed API for Single Songs (~150ms)
+    if not is_playlist:
+        vid_id = extract_youtube_id(url)
+        try:
+            oembed_url = f"https://www.youtube.com/oembed?{urlencode({'url': url, 'format': 'json'})}"
+            req = urllib.request.Request(oembed_url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=1.5) as resp:
+                if resp.status == 200:
+                    data = json.loads(resp.read().decode('utf-8'))
+                    thumb = f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg" if vid_id else data.get('thumbnail_url')
+                    return remember_metadata(url, {
+                        'type': 'single',
+                        'title': data.get('title', 'Unknown Track'),
+                        'uploader': data.get('author_name', 'YouTube'),
+                        'thumbnail': thumb,
+                        'duration': 'Ready',
+                        'url': url
+                    })
+        except Exception:
+            pass  # Fast fallback to yt-dlp
+
+    # Tier 2: Fast yt-dlp with minimal timeout
+    clients = ['android', 'ios', 'mweb']
     last_error = None
     info = None
 
     for client in clients:
         flat_opts = get_base_ydl_opts(client)
-        if 'playlist' in url.lower() or 'list=' in url.lower():
+        flat_opts['socket_timeout'] = 5
+        if is_playlist:
             flat_opts['extract_flat'] = 'in_playlist'
+        else:
+            flat_opts['extract_flat'] = True
         try:
             with yt_dlp.YoutubeDL(flat_opts) as ydl:
                 info = ydl.extract_info(url, download=False, process=False)
@@ -221,7 +323,7 @@ def inspect_url_entity(url: str) -> dict:
         }
 
     try:
-        if info.get('_type') == 'playlist':
+        if info.get('_type') == 'playlist' or is_playlist:
             playlist_title = info.get('title') or "Playlist"
             entries = []
             for entry in info.get('entries', []) or []:
@@ -233,31 +335,31 @@ def inspect_url_entity(url: str) -> dict:
                 entries.append({
                     'url': vid_url,
                     'title': entry.get('title', 'Unknown Track'),
-                    'thumbnail': entry.get('thumbnail')
+                    'thumbnail': entry.get('thumbnail') or (f"https://img.youtube.com/vi/{entry.get('id', '')}/hqdefault.jpg" if entry.get('id') else None)
                 })
-            return {
+            return remember_metadata(url, {
                 'type': 'playlist',
                 'title': playlist_title,
-                'uploader': info.get('uploader') or info.get('channel', ''),
+                'uploader': info.get('uploader') or info.get('channel', 'YouTube'),
                 'count': len(entries),
                 'thumbnail': info.get('thumbnail') or (entries[0].get('thumbnail') if entries else None),
                 'entries': entries[:250]
-            }
+            })
         else:
-            vid_id = info.get('id', '')
+            vid_id = info.get('id') or extract_youtube_id(url)
             thumb = info.get('thumbnail') or (
-                f"https://img.youtube.com/vi/{vid_id}/hqdefault.jpg" if vid_id else None
+                f"https://i.ytimg.com/vi/{vid_id}/maxresdefault.jpg" if vid_id else None
             )
             duration = info.get('duration', 0) or 0
             mins, secs = divmod(int(duration), 60)
-            return {
+            return remember_metadata(url, {
                 'type': 'single',
                 'title': info.get('title', 'Unknown Track'),
-                'uploader': info.get('uploader') or info.get('channel', ''),
+                'uploader': info.get('uploader') or info.get('channel', 'YouTube'),
                 'thumbnail': thumb,
-                'duration': f'{mins}:{secs:02d}',
+                'duration': f'{mins}:{secs:02d}' if duration else 'Ready',
                 'url': url
-            }
+            })
     except Exception as exc:
         return {
             'type': 'error',
@@ -268,12 +370,20 @@ def inspect_url_entity(url: str) -> dict:
 
 
 def resolve_multilink_structure(raw_urls: list[str]) -> dict:
-    clean_urls = [u.strip() for u in raw_urls if u.strip()][:MAX_URLS_PER_BATCH]
+    seen_urls = set()
+    clean_urls = []
+    for raw_url in raw_urls:
+        url = raw_url.strip()
+        if url and url not in seen_urls:
+            clean_urls.append(url)
+            seen_urls.add(url)
+        if len(clean_urls) == MAX_URLS_PER_BATCH:
+            break
     if not clean_urls:
         return {'playlists': [], 'singles': [], 'errors': [], 'total_tracks': 0}
 
     results = []
-    with ThreadPoolExecutor(max_workers=min(8, len(clean_urls))) as executor:
+    with ThreadPoolExecutor(max_workers=min(METADATA_WORKERS, len(clean_urls))) as executor:
         futures = [executor.submit(inspect_url_entity, u) for u in clean_urls]
         for f in futures:
             try:
@@ -319,14 +429,14 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
     temp_base = f"track_{track_idx:04d}"
     temp_out = os.path.join(task_dir, f"{temp_base}.%(ext)s")
 
-    clients = ['android', 'ios', 'mweb', 'web_creator', 'web']
+    clients = ['android', 'ios', 'mweb']
     last_error = None
     success = False
 
     for client in clients:
         ydl_opts = get_base_ydl_opts(client)
         ydl_opts.update({
-            'format': 'bestaudio/best',
+            'format': 'bestaudio[ext=m4a]/bestaudio/best',
             'outtmpl': temp_out,
             'ffmpeg_location': FFMPEG_PATH,
             'postprocessors': [{
@@ -334,12 +444,16 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
                 'preferredcodec': 'mp3',
                 'preferredquality': quality,
             }],
+            'postprocessor_args': {
+                'FFmpegExtractAudio': ['-threads', str(FFMPEG_THREADS)]
+            },
             'progress_hooks': [make_progress_hook(task_id, track_idx)],
             'noplaylist': True,
-            'retries': 15,
-            'fragment_retries': 15,
-            'concurrent_fragment_downloads': 4,
-            'retry_sleep_functions': {'http': lambda n: 1},
+            'retries': 1,
+            'fragment_retries': 1,
+            'concurrent_fragment_downloads': FRAGMENT_WORKERS,
+            'buffersize': 1024 * 256,
+            'socket_timeout': 12,
             'prefer_ffmpeg': True,
         })
 
@@ -449,7 +563,7 @@ def run_download_task(task_id: str, urls: list[str], quality: str):
     task['status'] = 'converting'
 
     converted_results = []
-    max_workers = min(6, len(flat_queue))
+    max_workers = min(TRACK_WORKERS, len(flat_queue))
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         futures = {
@@ -514,7 +628,7 @@ def get_info():
 @app.route('/api/health')
 @app.route('/healthz')
 def health():
-    return jsonify({'status': 'ok', 'service': 'audiorip', 'version': '1.0.0'})
+    return jsonify({'status': 'ok', 'service': 'audiorip', 'version': '1.0.1'})
 
 
 @app.route('/api/inspect', methods=['POST'])
@@ -613,9 +727,11 @@ def download_file(task_id):
     if not file_path or not os.path.exists(file_path) or not is_safe_path(file_path):
         return jsonify({'error': 'Requested file is invalid or expired'}), 404
 
+    mimetype = 'audio/mpeg' if task.get('output_type') == 'mp3' else 'application/zip'
     return send_file(
         file_path,
         as_attachment=True,
+        mimetype=mimetype,
         download_name=task.get('output_name', 'audio.mp3'),
     )
 

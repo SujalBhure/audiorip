@@ -399,12 +399,57 @@ body {
   gap: 8px;
 }
 
+.section-label-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
 .section-label {
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   font-weight: 700;
   color: var(--text-muted);
   letter-spacing: 0.08em;
+}
+
+.autodownload-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-full);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.autodownload-toggle .toggle-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-muted);
+  transition: background 0.2s ease, box-shadow 0.2s ease;
+}
+
+.autodownload-toggle.active {
+  background: rgba(56, 189, 248, 0.12);
+  border-color: rgba(56, 189, 248, 0.35);
+  color: var(--accent-sky);
+}
+
+.autodownload-toggle.active .toggle-dot {
+  background: var(--accent-sky);
+  box-shadow: 0 0 8px var(--accent-sky);
+}
+
+.autodownload-toggle:active {
+  transform: scale(0.96);
 }
 
 .quality-chips {

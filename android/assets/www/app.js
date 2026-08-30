@@ -1,4 +1,4 @@
-// AudioRip Pro Mobile Client
+// AudioRip Mobile Client
 document.addEventListener('DOMContentLoaded', () => {
   // DOM Elements
   const modeTabs = document.getElementById('modeTabs');
@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const inspectBtn = document.getElementById('inspectBtn');
   
   const qualitySelector = document.getElementById('qualitySelector');
+  const autoDownloadToggle = document.getElementById('autoDownloadToggle');
   const previewCard = document.getElementById('previewCard');
   const previewSpinner = document.getElementById('previewSpinner');
   const previewContent = document.getElementById('previewContent');
@@ -43,13 +44,17 @@ document.addEventListener('DOMContentLoaded', () => {
   // App State
   let currentMode = 'single';
   let selectedQuality = '320';
+  let autoDownload = true;
   let activeEntity = null;
   let debounceTimer = null;
+  let autoDownloadTimer = null;
   let activeEventSource = null;
-  let apiBase = 'https://audiorip-backend.onrender.com';
+  let apiBase = '';
 
   // Native Android Bridge Helper
   const isAndroid = () => typeof window.Android !== 'undefined';
+  const usesOnDeviceEngine = () => isAndroid() && typeof window.Android.inspectOnDevice === 'function';
+  
   const triggerHaptic = (ms = 40) => {
     if (isAndroid() && window.Android.vibrate) {
       window.Android.vibrate(ms);
@@ -57,64 +62,49 @@ document.addEventListener('DOMContentLoaded', () => {
       navigator.vibrate(ms);
     }
   };
+  
   const showNotification = (msg) => {
     if (isAndroid() && window.Android.showToast) {
       window.Android.showToast(msg);
     }
   };
 
-  // ── Auto-Detect Backend (Local Termux vs Cloud Render) ─────────────────────
+  // ── Engine Initialization (100% On-Device APK vs Local Companion) ───────────
   async function initBackend() {
+    if (usesOnDeviceEngine()) {
+      apiBase = '';
+      console.log('⚡ AudioRip: 100% on-device native engine active');
+      return;
+    }
+
+    // When accessed in a desktop browser or self-hosted companion server
+    if (window.location.protocol.startsWith('http')) {
+      apiBase = '';
+      console.log('⚡ AudioRip: Same-origin companion server connected');
+      return;
+    }
+
+    // Try local port 5000 if running a local companion daemon
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 1200);
+      const timeoutId = setTimeout(() => controller.abort(), 1000);
       const res = await fetch('http://127.0.0.1:5000/api/health', { signal: controller.signal });
       clearTimeout(timeoutId);
       if (res.ok) {
         apiBase = 'http://127.0.0.1:5000';
-        console.log('⚡ Connected to local high-speed engine:', apiBase);
+        console.log('⚡ AudioRip: Local daemon connected:', apiBase);
         return;
       }
     } catch (e) {
-      // Local engine not running, fall back to cloud backend
+      // Local daemon inactive
     }
-
-    // Default to cloud backend or relative if hosted directly
-    if (window.location.protocol.startsWith('http') && !window.location.hostname.includes('netlify')) {
-      apiBase = '';
-    } else {
-      apiBase = 'https://audiorip-backend.onrender.com';
-    }
-    console.log('🌐 Connected to backend:', apiBase);
-
-    // Warm up cloud instance on page open
-    fetch(`${apiBase}/api/health`).catch(() => {});
   }
   initBackend();
 
-  // ── Robust Fetch with Auto-Retry for Cloud Cold Starts ───────────────────
-  async function robustFetch(path, options = {}, retries = 2) {
+  // ── Helper fetch for companion/web mode ───────────────────────────────────
+  async function localFetch(path, options = {}) {
     const url = `${apiBase}${path}`;
-    for (let attempt = 0; attempt <= retries; attempt++) {
-      try {
-        const res = await fetch(url, options);
-        if (res.status === 502 || res.status === 504) {
-          if (attempt < retries) {
-            updateLoadingMessage('Waking up cloud engine (free tier cold-start)...');
-            await new Promise((r) => setTimeout(r, 4000));
-            continue;
-          }
-        }
-        return res;
-      } catch (err) {
-        if (attempt < retries) {
-          updateLoadingMessage('Retrying connection...');
-          await new Promise((r) => setTimeout(r, 3000));
-        } else {
-          throw err;
-        }
-      }
-    }
+    return await fetch(url, options);
   }
 
   function updateLoadingMessage(msg) {
@@ -169,6 +159,16 @@ document.addEventListener('DOMContentLoaded', () => {
     selectedQuality = chip.dataset.quality;
   });
 
+  // ── Auto-Download Toggle ─────────────────────────────────────────────────
+  if (autoDownloadToggle) {
+    autoDownloadToggle.addEventListener('click', () => {
+      autoDownload = !autoDownload;
+      autoDownloadToggle.classList.toggle('active', autoDownload);
+      triggerHaptic(25);
+      showNotification(autoDownload ? 'Auto-Download enabled ⚡' : 'Auto-Download disabled');
+    });
+  }
+
   // ── Paste & Clear Handlers ───────────────────────────────────────────────
   async function getClipboardData() {
     triggerHaptic(35);
@@ -206,28 +206,32 @@ document.addEventListener('DOMContentLoaded', () => {
     triggerHaptic(20);
     urlInput.value = '';
     clearBtn.classList.remove('visible');
+    clearTimeout(autoDownloadTimer);
     resetPreview();
   });
 
   urlInput.addEventListener('input', () => {
     clearBtn.classList.toggle('visible', urlInput.value.length > 0);
     clearTimeout(debounceTimer);
-    debounceTimer = setTimeout(handleAutoFetch, 400);
+    clearTimeout(autoDownloadTimer);
+    debounceTimer = setTimeout(handleAutoFetch, 200);
   });
 
   urlInput.addEventListener('paste', () => {
-    setTimeout(handleAutoFetch, 100);
+    clearTimeout(autoDownloadTimer);
+    setTimeout(handleAutoFetch, 60);
   });
 
-  // ── Share Intent Handler ─────────────────────────────────────────────────
+  // ── Share Intent Handler (YouTube -> Share -> AudioRip) ───────────────────
   window.handleSharedUrl = function (url) {
     if (!url) return;
-    if (url.includes('list=') || url.includes('playlist')) {
+    const cleanUrl = url.trim();
+    if (cleanUrl.includes('list=') || cleanUrl.includes('playlist')) {
       setMode('playlist');
     } else {
       setMode('single');
     }
-    urlInput.value = url.trim();
+    urlInput.value = cleanUrl;
     clearBtn.classList.add('visible');
     handleAutoFetch();
   };
@@ -240,10 +244,17 @@ document.addEventListener('DOMContentLoaded', () => {
       return;
     }
 
-    showLoadingPreview('Resolving audio streams...');
+    showLoadingPreview('Resolving audio metadata on-device...');
 
+    // 100% On-Device Engine path
+    if (usesOnDeviceEngine()) {
+      window.Android.inspectOnDevice(url);
+      return;
+    }
+
+    // Companion server / web fallback
     try {
-      const res = await robustFetch('/api/info', {
+      const res = await localFetch('/api/info', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url })
@@ -251,7 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Server responded with status ${res.status}`);
+        throw new Error(errData.error || `Server error ${res.status}`);
       }
 
       const data = await res.json();
@@ -262,7 +273,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ── Multi-Link Inspector ─────────────────────────────────────────────────
+  // ── Multi-Link Batch Inspector ───────────────────────────────────────────
   inspectBtn.addEventListener('click', async () => {
     const lines = multiInput.value
       .split('\n')
@@ -275,10 +286,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     triggerHaptic(40);
-    showLoadingPreview('Inspecting all playlist and song links...');
+    showLoadingPreview('Inspecting all playlist & song links on-device...');
 
+    // 100% On-Device Engine path
+    if (usesOnDeviceEngine()) {
+      window.Android.inspectManyOnDevice(JSON.stringify(lines));
+      return;
+    }
+
+    // Companion server / web fallback
     try {
-      const res = await robustFetch('/api/inspect', {
+      const res = await localFetch('/api/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls: lines })
@@ -286,7 +304,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       if (!res.ok) {
         const errData = await res.json().catch(() => ({}));
-        throw new Error(errData.error || `Inspection failed with status ${res.status}`);
+        throw new Error(errData.error || `Inspection failed (${res.status})`);
       }
 
       const data = await res.json();
@@ -308,6 +326,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function resetPreview() {
+    clearTimeout(autoDownloadTimer);
     previewCard.classList.remove('visible');
     previewSpinner.classList.remove('visible');
     previewContent.classList.remove('visible');
@@ -317,6 +336,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function showErrorPreview(msg) {
+    clearTimeout(autoDownloadTimer);
     previewCard.classList.add('visible');
     previewSpinner.classList.remove('visible');
     previewContent.classList.add('visible');
@@ -332,6 +352,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   function renderPreview(data) {
+    clearTimeout(autoDownloadTimer);
     previewSpinner.classList.remove('visible');
     previewContent.classList.add('visible');
     multiTreeWrap.innerHTML = '';
@@ -339,39 +360,59 @@ document.addEventListener('DOMContentLoaded', () => {
     previewThumb.src = data.thumbnail || 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="%231E222B"><rect width="80" height="80"/></svg>';
     previewTitle.textContent = data.title || 'Track';
     previewAuthor.textContent = data.uploader || 'YouTube';
-    previewDuration.textContent = data.duration || '--';
+    previewDuration.textContent = data.duration || 'Ready';
     previewTypePill.textContent = data.type === 'playlist' ? 'PLAYLIST' : 'SINGLE';
     previewTrackCount.textContent = data.type === 'playlist' ? `${data.count} Tracks` : '1 Track';
 
     downloadBtn.disabled = false;
-    btnText.textContent = data.type === 'playlist' ? `Download Playlist ZIP (${data.count} Tracks)` : 'Download 320kbps MP3';
+    btnText.textContent = data.type === 'playlist' ? `Convert Playlist (${data.count} Tracks)` : `Convert ${selectedQuality}kbps MP3`;
+
+    // ⚡ Auto-Download Feature: Trigger conversion hands-free once resolved
+    if (autoDownload) {
+      btnText.textContent = '⚡ Auto-Converting MP3...';
+      autoDownloadTimer = setTimeout(() => {
+        if (activeEntity && !downloadBtn.disabled) {
+          downloadBtn.click();
+        }
+      }, 350);
+    }
   }
 
   function renderMultiPreview(data) {
+    clearTimeout(autoDownloadTimer);
     previewSpinner.classList.remove('visible');
     previewContent.classList.add('visible');
 
     previewThumb.src = 'data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" width="80" height="80" fill="%231E222B"><rect width="80" height="80"/></svg>';
     previewTitle.textContent = `Batch Package (${data.total_tracks} Tracks)`;
-    previewAuthor.textContent = `${data.playlists.length} Playlists, ${data.singles.length} Single Tracks`;
-    previewDuration.textContent = 'ZIP Archive';
+    previewAuthor.textContent = `${(data.playlists || []).length} Playlists, ${(data.singles || []).length} Single Tracks`;
+    previewDuration.textContent = 'Batch Process';
     previewTypePill.textContent = 'MULTI';
     previewTrackCount.textContent = `${data.total_tracks} Total Tracks`;
 
     let html = '';
-    data.playlists.forEach((p) => {
+    (data.playlists || []).forEach((p) => {
       html += `<div class="tree-item"><span class="tree-badge playlist">PLAYLIST</span><span class="tree-name">${p.title}</span><span class="tree-count">${p.count} tracks</span></div>`;
     });
-    data.singles.forEach((s) => {
+    (data.singles || []).forEach((s) => {
       html += `<div class="tree-item"><span class="tree-badge single">SINGLE</span><span class="tree-name">${s.title}</span></div>`;
     });
-    data.errors.forEach((e) => {
+    (data.errors || []).forEach((e) => {
       html += `<div class="tree-item"><span class="tree-badge error">SKIPPED</span><span class="tree-name">${e.url}</span></div>`;
     });
     multiTreeWrap.innerHTML = html;
 
     downloadBtn.disabled = data.total_tracks === 0;
-    btnText.textContent = `Download Multi-Link ZIP (${data.total_tracks} Tracks)`;
+    btnText.textContent = `Convert Multi-Link Batch (${data.total_tracks} Tracks)`;
+
+    if (autoDownload && data.total_tracks > 0) {
+      btnText.textContent = '⚡ Auto-Converting Multi Batch...';
+      autoDownloadTimer = setTimeout(() => {
+        if (activeEntity && !downloadBtn.disabled) {
+          downloadBtn.click();
+        }
+      }, 400);
+    }
   }
 
   // ── Download & Conversion Flow ───────────────────────────────────────────
@@ -380,17 +421,26 @@ document.addEventListener('DOMContentLoaded', () => {
 
     triggerHaptic(50);
     downloadBtn.disabled = true;
-    btnText.textContent = 'Initializing Converter...';
+    btnText.textContent = 'Initializing On-Device Engine...';
     progressPanel.classList.add('visible');
     tracklistProgress.innerHTML = '';
     progressBarFill.style.width = '0%';
     percentageLabel.textContent = '0%';
     statusLabel.textContent = 'Starting conversion...';
 
-    const urls = currentMode === 'multi' ? activeEntity.urls : [urlInput.value.trim()];
+    const urls = currentMode === 'multi' 
+      ? (activeEntity.urls || multiInput.value.split('\n').map((v) => v.trim()).filter((v) => v.startsWith('http')))
+      : [urlInput.value.trim()];
 
+    // 100% On-Device Engine execution
+    if (usesOnDeviceEngine()) {
+      window.Android.convertOnDevice(JSON.stringify(urls), selectedQuality);
+      return;
+    }
+
+    // Companion server / web fallback
     try {
-      const res = await robustFetch('/api/download', {
+      const res = await localFetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ urls, quality: selectedQuality })
@@ -411,58 +461,30 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
+  // Companion SSE progress stream (used in companion web mode only)
   function streamProgress(taskId) {
-    if (activeEventSource) {
-      activeEventSource.close();
-    }
-
-    const progressUrl = `${apiBase}/api/progress/${taskId}`;
-    activeEventSource = new EventSource(progressUrl);
+    if (activeEventSource) activeEventSource.close();
+    activeEventSource = new EventSource(`${apiBase}/api/progress/${taskId}`);
 
     activeEventSource.onmessage = (event) => {
       const data = JSON.parse(event.data);
-
       if (data.status === 'converting') {
         const progList = data.progress || [];
         const total = progList.length;
-        let completed = 0;
         let sumPercent = 0;
-
-        let trackHtml = '';
-        progList.forEach((p, idx) => {
-          if (p.status === 'completed') completed++;
-          sumPercent += (p.percent || 0);
-
-          trackHtml += `
-            <div class="track-prog-item">
-              <span class="track-prog-title">${p.title || `Track ${idx + 1}`}</span>
-              <span class="track-prog-status">${p.status === 'completed' ? '✓ Done' : p.percent ? `${p.percent}%` : p.status}</span>
-            </div>
-          `;
-        });
-
-        tracklistProgress.innerHTML = trackHtml;
+        progList.forEach((p) => { sumPercent += (p.percent || 0); });
         const avgPercent = total > 0 ? Math.round(sumPercent / total) : 0;
         progressBarFill.style.width = `${avgPercent}%`;
         percentageLabel.textContent = `${avgPercent}%`;
-        statusLabel.textContent = `Converting ${completed}/${total} Tracks...`;
-
-        const activeTrack = progList.find((p) => p.status === 'downloading');
-        if (activeTrack) {
-          speedLabel.textContent = activeTrack.speed || '-- MB/s';
-          etaLabel.textContent = activeTrack.eta ? `ETA: ${activeTrack.eta}` : 'Converting...';
-        }
+        statusLabel.textContent = `Converting ${total} Tracks...`;
       } else if (data.status === 'completed' || data.status === 'done') {
         activeEventSource.close();
         progressBarFill.style.width = '100%';
         percentageLabel.textContent = '100%';
-        statusLabel.textContent = 'Download Ready!';
-        btnText.textContent = 'Download Complete!';
+        statusLabel.textContent = '✓ Conversion Complete!';
+        btnText.textContent = 'Convert Another MP3';
+        downloadBtn.disabled = false;
         triggerHaptic(80);
-        showNotification('Conversion finished! Saving file...');
-
-        const fileUrl = `${apiBase}/api/file/${taskId}`;
-        triggerNativeOrWebDownload(fileUrl, data.output_name || 'audio.mp3');
       } else if (data.status === 'error') {
         activeEventSource.close();
         statusLabel.textContent = `Error: ${data.error || 'Conversion failed'}`;
@@ -470,38 +492,51 @@ document.addEventListener('DOMContentLoaded', () => {
         btnText.textContent = 'Retry Download';
       }
     };
-
-    activeEventSource.onerror = () => {
-      activeEventSource.close();
-    };
   }
 
-  async function triggerNativeOrWebDownload(url, filename) {
-    if (isAndroid() && window.Android.saveFile) {
-      try {
-        const response = await fetch(url);
-        const blob = await response.blob();
-        const reader = new FileReader();
-        reader.onloadend = function () {
-          const base64data = reader.result.split(',')[1];
-          window.Android.saveFile(base64data, filename, '');
+  // ── Native On-Device Event Listener (Called by MainActivity.java) ────────
+  window.onNativeEvent = function (raw) {
+    try {
+      const event = typeof raw === 'string' ? JSON.parse(raw) : raw;
+      
+      if (event.kind === 'info') {
+        activeEntity = event;
+        renderPreview(event);
+      } else if (event.kind === 'multiInfo') {
+        activeEntity = {
+          type: 'multi',
+          ...event,
+          urls: event.urls || multiInput.value.split('\n').map((v) => v.trim()).filter((v) => v.startsWith('http'))
         };
-        reader.readAsDataURL(blob);
-      } catch (err) {
-        console.error('Native save error:', err);
+        renderMultiPreview(event);
+      } else if (event.kind === 'progress') {
+        progressPanel.classList.add('visible');
+        progressBarFill.style.width = `${event.percent || 0}%`;
+        percentageLabel.textContent = `${event.percent || 0}%`;
+        statusLabel.textContent = event.message || 'Processing on device…';
+      } else if (event.kind === 'complete') {
+        progressBarFill.style.width = '100%';
+        percentageLabel.textContent = '100%';
+        const count = event.count || 1;
+        statusLabel.textContent = `✓ Saved ${count} MP3 file(s) to Music/AudioRip`;
+        btnText.textContent = 'Convert Another MP3';
+        downloadBtn.disabled = false;
+        triggerHaptic(80);
+        showNotification(`Saved ${count} MP3 to Music/AudioRip 🎵`);
+      } else if (event.kind === 'error') {
+        statusLabel.textContent = `Error: ${event.message || 'Conversion failed'}`;
+        btnText.textContent = 'Try Again';
+        downloadBtn.disabled = false;
+        showErrorPreview(event.message || 'Conversion failed');
+        showNotification(event.message || 'Conversion failed');
       }
-    } else {
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
+    } catch (err) {
+      console.error('Invalid native event received:', err);
     }
-  }
+  };
 
-  // ── In-App Update System & Changelog Viewer ──────────────────────────────
-  const CURRENT_VERSION = '1.0.0';
+  // ── In-App Update System & Changelog Viewer (GitHub Releases) ─────────────
+  const CURRENT_VERSION = '1.1.0';
   const GITHUB_REPO = 'SujalBhure/audiorip-backend';
   
   const versionBadge = document.getElementById('versionBadge');
@@ -522,7 +557,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const lines = markdown.split('\n');
     let currentCategory = 'features';
 
-    lines.forEach(line => {
+    lines.forEach((line) => {
       const trimmed = line.trim();
       if (/bug|fix|patch|issue/i.test(trimmed) && trimmed.startsWith('#')) {
         currentCategory = 'fixes';
@@ -547,8 +582,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const p1 = v1.replace(/^v/, '').split('.').map(Number);
     const p2 = v2.replace(/^v/, '').split('.').map(Number);
     for (let i = 0; i < Math.max(p1.length, p2.length); i++) {
-      const n1 = p1[i] || 0;
-      const n2 = p2[i] || 0;
+      const n1 = p1[i] || 0, n2 = p2[i] || 0;
       if (n1 > n2) return 1;
       if (n1 < n2) return -1;
     }
@@ -567,7 +601,7 @@ document.addEventListener('DOMContentLoaded', () => {
       });
 
       if (!res.ok) {
-        if (isManual) showNotification('No updates found or repository offline.');
+        if (isManual) showNotification('AudioRip is up to date.');
         return;
       }
 
@@ -584,14 +618,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const { features, fixes } = parseChangelog(release.body);
         
         if (features.length > 0) {
-          newFeaturesList.innerHTML = features.map(f => `<li>${f}</li>`).join('');
+          newFeaturesList.innerHTML = features.map((f) => `<li>${f}</li>`).join('');
         }
         if (fixes.length > 0) {
-          bugFixesList.innerHTML = fixes.map(f => `<li>${f}</li>`).join('');
+          bugFixesList.innerHTML = fixes.map((f) => `<li>${f}</li>`).join('');
         }
 
-        // Find direct APK asset or fall back to release page
-        const apkAsset = (release.assets || []).find(a => a.name.endsWith('.apk'));
+        const apkAsset = (release.assets || []).find((a) => a.name.endsWith('.apk'));
         const downloadUrl = apkAsset ? apkAsset.browser_download_url : release.html_url;
 
         modalUpdateBtn.href = downloadUrl;
@@ -630,10 +663,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
   }
 
-  // Auto-check for updates 3 seconds after launch
-  setTimeout(() => checkAppUpdates(false), 3000);
+  // Auto-check for updates 4 seconds after launch
+  setTimeout(() => checkAppUpdates(false), 4000);
 
-  // Instagram external link open
+  // Instagram external link
   if (creatorLink) {
     creatorLink.addEventListener('click', (e) => {
       if (isAndroid() && window.Android.openExternalUrl) {
