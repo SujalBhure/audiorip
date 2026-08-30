@@ -4,7 +4,7 @@
 > **Author**: [sujalbhure](https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg==)  
 > **Target Platforms**: Android (8.0 to 16 API 35/36), Web, Desktop (Linux/Windows/macOS)  
 > **GitHub Repository**: [https://github.com/SujalBhure/audiorip](https://github.com/SujalBhure/audiorip)  
-> **Latest APK Release**: [https://github.com/SujalBhure/audiorip/releases/tag/v1.1.1](https://github.com/SujalBhure/audiorip/releases/tag/v1.1.1)
+> **Latest APK Release**: [https://github.com/SujalBhure/audiorip/releases/tag/v1.1.2](https://github.com/SujalBhure/audiorip/releases/tag/v1.1.2)
 
 ---
 
@@ -220,7 +220,7 @@ When transferring this folder to your PC:
 
 ---
 
-## 🚀 Version 1.1.1 Changelog & Updates
+## 🚀 Version 1.1.2 Changelog & Updates
 
 1. **⏸️ Pause & ❌ Cancel Controls**:
    - Added Pause, Resume, and Cancel buttons in the active progress panel.

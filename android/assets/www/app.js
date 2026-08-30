@@ -644,7 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // ── In-App Update System & Changelog Viewer (GitHub Releases) ─────────────
-  const CURRENT_VERSION = '1.1.1';
+  const CURRENT_VERSION = '1.1.2';
   const GITHUB_REPO = 'SujalBhure/audiorip';
   
   const versionBadge = document.getElementById('versionBadge');
