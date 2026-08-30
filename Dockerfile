@@ -1,12 +1,17 @@
 FROM python:3.11-slim
 
-# Install system dependencies: ffmpeg and nodejs
+# Install system dependencies: ffmpeg, nodejs, curl, unzip
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ffmpeg \
     nodejs \
     ca-certificates \
     curl \
+    unzip \
     && rm -rf /var/lib/apt/lists/*
+
+# Install Deno for native yt-dlp BotGuard JavaScript runtime
+RUN curl -fsSL https://deno.land/install.sh | sh
+ENV PATH="/root/.deno/bin:$PATH"
 
 WORKDIR /app
 
@@ -15,7 +20,6 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Create downloads directory with proper permissions
 RUN mkdir -p downloads && chmod 777 downloads
 
 ENV PORT=5000

@@ -142,28 +142,38 @@ def make_progress_hook(task_id: str, song_index: int):
     return hook
 
 
+DENO_PATH = shutil.which('deno') or '/root/.deno/bin/deno'
+
 # ── Robust Multi-Client Extractor Helper (Bypasses Datacenter Bot Walls) ────
 
-def get_base_ydl_opts(client_type: str = 'android') -> dict:
+def get_base_ydl_opts(client_type: str = 'default') -> dict:
     opts = {
         'quiet': True,
         'no_warnings': True,
-        'socket_timeout': 20,
+        'socket_timeout': 25,
         'nocheckcertificate': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': [client_type],
-            }
-        },
         'http_headers': {
             'User-Agent': 'Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
+    if client_type and client_type != 'default':
+        opts['extractor_args'] = {
+            'youtube': {
+                'player_client': [client_type],
+            }
+        }
     if os.path.exists(COOKIE_FILE):
         opts['cookiefile'] = COOKIE_FILE
-    if os.path.exists(NODE_PATH):
-        opts['js_runtimes'] = {'node': {'path': NODE_PATH}}
+
+    js_runtimes = {}
+    if os.path.exists(DENO_PATH):
+        js_runtimes['deno'] = {'path': DENO_PATH}
+    elif os.path.exists(NODE_PATH):
+        js_runtimes['node'] = {'path': NODE_PATH}
+    if js_runtimes:
+        opts['js_runtimes'] = js_runtimes
+
     return opts
 
 
@@ -179,7 +189,7 @@ def inspect_url_entity(url: str) -> dict:
             'error': 'Please provide a valid YouTube or YouTube Music link.'
         }
     
-    clients = ['android', 'mweb', 'ios', 'web_embedded', 'tv_embedded']
+    clients = ['default', 'android', 'mweb', 'ios', 'tv_embedded']
     last_error = None
     info = None
 
@@ -303,7 +313,7 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
     temp_base = f"track_{track_idx:04d}"
     temp_out = os.path.join(task_dir, f"{temp_base}.%(ext)s")
 
-    clients = ['android', 'mweb', 'ios', 'tv_embedded']
+    clients = ['default', 'android', 'mweb', 'ios', 'tv_embedded']
     last_error = None
     success = False
 
