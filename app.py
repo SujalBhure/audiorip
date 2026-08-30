@@ -146,21 +146,27 @@ DENO_PATH = shutil.which('deno') or '/root/.deno/bin/deno'
 
 # ── Robust Multi-Client Extractor Helper (Bypasses Datacenter Bot Walls) ────
 
-def get_base_ydl_opts(client_type: str = 'web') -> dict:
+def get_base_ydl_opts(client_type: str = 'android') -> dict:
     opts = {
         'quiet': True,
         'no_warnings': True,
         'socket_timeout': 25,
         'nocheckcertificate': True,
         'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+            'User-Agent': 'com.google.android.youtube/19.29.37 (Linux; U; Android 14; en_US; Pixel 7 Pro)',
             'Accept-Language': 'en-US,en;q=0.9',
         }
     }
     if client_type and client_type != 'default':
         opts['extractor_args'] = {
             'youtube': {
-                'player_client': [client_type],
+                'player_client': [client_type, 'ios', 'mweb'],
+            }
+        }
+    else:
+        opts['extractor_args'] = {
+            'youtube': {
+                'player_client': ['android', 'ios', 'mweb'],
             }
         }
     if os.path.exists(COOKIE_FILE):
@@ -189,7 +195,7 @@ def inspect_url_entity(url: str) -> dict:
             'error': 'Please provide a valid YouTube or YouTube Music link.'
         }
     
-    clients = ['web', 'mweb', 'default', 'android', 'ios', 'tv_embedded']
+    clients = ['android', 'ios', 'mweb', 'web_creator', 'web']
     last_error = None
     info = None
 
@@ -313,7 +319,7 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
     temp_base = f"track_{track_idx:04d}"
     temp_out = os.path.join(task_dir, f"{temp_base}.%(ext)s")
 
-    clients = ['web', 'mweb', 'default', 'android', 'ios', 'tv_embedded']
+    clients = ['android', 'ios', 'mweb', 'web_creator', 'web']
     last_error = None
     success = False
 
