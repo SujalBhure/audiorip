@@ -1,0 +1,224 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>AudioRip Pro</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <div class="ambient-glow glow-1"></div>
+  <div class="ambient-glow glow-2"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="brand-row">
+        <div class="brand-logo">
+          <div class="logo-bars">
+            <span></span><span></span><span></span><span></span><span></span>
+          </div>
+        </div>
+        <div class="brand-text">
+          <h1 class="brand-title">Audio<span>Rip</span></h1>
+          <p class="brand-badge" id="versionBadge" title="Tap to check for updates">PRO v1.0</p>
+        </div>
+      </div>
+      <p class="brand-subtitle">High-fidelity 320kbps YouTube & Music audio engine</p>
+    </header>
+
+    <!-- Segmented Mode Switcher with Sliding Pill Animation -->
+    <div class="mode-tabs-wrapper">
+      <div class="mode-tabs" id="modeTabs" role="tablist">
+        <div class="tab-indicator" id="tabIndicator"></div>
+        <button class="mode-tab active" data-mode="single" role="tab" id="tabSingle">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+          <span>Single</span>
+        </button>
+        <button class="mode-tab" data-mode="playlist" role="tab" id="tabPlaylist">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="8" y1="6" x2="21" y2="6"></line><line x1="8" y1="12" x2="21" y2="12"></line><line x1="8" y1="18" x2="21" y2="18"></line><line x1="3" y1="6" x2="3.01" y2="6"></line><line x1="3" y1="12" x2="3.01" y2="12"></line><line x1="3" y1="18" x2="3.01" y2="18"></line></svg>
+          <span>Playlist</span>
+        </button>
+        <button class="mode-tab" data-mode="multi" role="tab" id="tabMulti">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect><path d="M9 14l2 2 4-4"></path></svg>
+          <span>Multi</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Main Card -->
+    <main class="main-card">
+      <!-- Input Panel: Single & Playlist -->
+      <div id="singlePanel" class="input-panel active">
+        <div class="input-group">
+          <div class="input-icon">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+          </div>
+          <input type="text" id="urlInput" class="custom-input" placeholder="Paste song or playlist link..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <div class="input-actions">
+            <button class="paste-btn" id="pasteBtn" title="Paste from clipboard">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+              <span>Paste</span>
+            </button>
+            <button class="clear-btn" id="clearBtn" title="Clear input">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Input Panel: Multi-Link Batch -->
+      <div id="multiPanel" class="input-panel">
+        <div class="multi-header-row">
+          <span class="panel-hint">Paste mixed song & playlist URLs (one per line):</span>
+          <button class="paste-btn-small" id="multiPasteBtn">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+            <span>Paste</span>
+          </button>
+        </div>
+        <textarea id="multiInput" class="custom-textarea" rows="4" placeholder="https://www.youtube.com/watch?v=...&#10;https://www.youtube.com/playlist?list=..."></textarea>
+        <button class="inspect-btn" id="inspectBtn">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
+          <span>Fetch & Inspect Links</span>
+        </button>
+      </div>
+
+      <!-- Audio Quality Selector -->
+      <div class="quality-section">
+        <label class="section-label">AUDIO BITRATE</label>
+        <div class="quality-chips" id="qualitySelector">
+          <button class="chip active" data-quality="320">
+            <span class="chip-rate">320 kbps</span>
+            <span class="chip-tag">Ultra HD</span>
+          </button>
+          <button class="chip" data-quality="192">
+            <span class="chip-rate">192 kbps</span>
+            <span class="chip-tag">High</span>
+          </button>
+          <button class="chip" data-quality="128">
+            <span class="chip-rate">128 kbps</span>
+            <span class="chip-tag">Compact</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Preview Inspection Card -->
+      <div class="preview-card" id="previewCard">
+        <div class="preview-spinner" id="previewSpinner">
+          <div class="spinner-ring"></div>
+          <span>Resolving audio streams...</span>
+        </div>
+
+        <div class="preview-content" id="previewContent">
+          <div class="preview-meta-row">
+            <div class="preview-thumb-wrap">
+              <img id="previewThumb" src="" alt="Album Cover" class="preview-thumb">
+              <div class="type-pill" id="previewTypePill">SINGLE</div>
+            </div>
+            <div class="preview-details">
+              <h3 class="preview-title" id="previewTitle">Track Title</h3>
+              <p class="preview-author" id="previewAuthor">Artist</p>
+              <div class="preview-stats">
+                <span class="stat-badge" id="previewDuration">0:00</span>
+                <span class="stat-badge highlight" id="previewTrackCount">1 Track</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Multi-link itemized tree breakdown -->
+          <div class="multi-tree-wrap" id="multiTreeWrap"></div>
+        </div>
+      </div>
+
+      <!-- Action Button -->
+      <button class="download-cta" id="downloadBtn" disabled>
+        <div class="btn-glow"></div>
+        <div class="btn-content">
+          <svg class="btn-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span class="btn-text" id="btnText">Convert & Download MP3</span>
+        </div>
+      </button>
+
+      <!-- Active Progress Panel -->
+      <div class="progress-panel" id="progressPanel">
+        <div class="progress-header">
+          <div class="status-indicator">
+            <span class="status-dot"></span>
+            <span class="status-label" id="statusLabel">Extracting Audio...</span>
+          </div>
+          <span class="percentage-label" id="percentageLabel">0%</span>
+        </div>
+
+        <div class="progress-bar-track">
+          <div class="progress-bar-fill" id="progressBarFill"></div>
+        </div>
+
+        <div class="progress-meta-row">
+          <span id="speedLabel">-- MB/s</span>
+          <span id="etaLabel">ETA: --s</span>
+        </div>
+
+        <!-- Track List Progress Itemizer -->
+        <div class="tracklist-progress" id="tracklistProgress"></div>
+      </div>
+    </main>
+
+    <!-- App Footer -->
+    <footer class="app-footer">
+      <a href="https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg==" target="_blank" rel="noopener noreferrer" class="creator-link" id="creatorLink">
+        <span>Made with</span>
+        <span class="heart-pulse">❤️</span>
+        <span>by <strong class="creator-name">sujalbhure</strong></span>
+      </a>
+    </footer>
+  </div>
+
+  <!-- Update Notification Modal -->
+  <div class="modal-overlay" id="updateModal">
+    <div class="modal-card">
+      <div class="modal-glow"></div>
+      <div class="modal-header">
+        <div class="modal-icon-badge">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+        </div>
+        <div class="modal-titles">
+          <h3 class="modal-title" id="modalTitle">Update Available</h3>
+          <p class="modal-version-tag" id="modalVersionTag">v1.1.0 · New Release</p>
+        </div>
+        <button class="modal-close-btn" id="modalCloseBtn" aria-label="Close modal">&times;</button>
+      </div>
+
+      <div class="modal-body" id="modalBody">
+        <div class="changelog-group">
+          <h4 class="changelog-heading">✨ WHAT'S NEW</h4>
+          <ul class="changelog-list" id="newFeaturesList">
+            <li>Ultra-fast multi-threaded audio conversion engine</li>
+            <li>Full Android 16 (API 35/36) compatibility & 4-byte page alignment</li>
+          </ul>
+        </div>
+
+        <div class="changelog-group">
+          <h4 class="changelog-heading">🐛 BUG FIXES & IMPROVEMENTS</h4>
+          <ul class="changelog-list" id="bugFixesList">
+            <li>Fixed YouTube BotGuard challenge bypass on mobile streams</li>
+            <li>Optimized 320kbps MP3 ID3 tag embedding & metadata discovery</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button class="modal-btn-dismiss" id="modalDismissBtn">Later</button>
+        <a class="modal-btn-primary" id="modalUpdateBtn" href="#" target="_blank">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+          <span id="updateBtnLabel">Download Update</span>
+        </a>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
