@@ -185,7 +185,8 @@ def inspect_url_entity(url: str) -> dict:
 
     for client in clients:
         flat_opts = get_base_ydl_opts(client)
-        flat_opts['extract_flat'] = 'in_playlist'
+        if 'playlist' in url.lower() or 'list=' in url.lower():
+            flat_opts['extract_flat'] = 'in_playlist'
         try:
             with yt_dlp.YoutubeDL(flat_opts) as ydl:
                 info = ydl.extract_info(url, download=False)
@@ -309,7 +310,7 @@ def process_track_item(task_id: str, track_idx: int, item: dict, quality: str, t
     for client in clients:
         ydl_opts = get_base_ydl_opts(client)
         ydl_opts.update({
-            'format': 'bestaudio[ext=m4a]/bestaudio/best',
+            'format': 'bestaudio/best',
             'outtmpl': temp_out,
             'ffmpeg_location': FFMPEG_PATH,
             'postprocessors': [{
