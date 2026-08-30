@@ -845,26 +845,90 @@ body {
 .progress-meta-row {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   font-size: 11px;
   font-family: 'JetBrains Mono', monospace;
   color: var(--text-muted);
+}
+
+#countLabel {
+  background: rgba(255, 255, 255, 0.06);
+  padding: 2px 8px;
+  border-radius: 4px;
+  color: var(--accent-sky);
+  font-weight: 600;
+}
+
+.progress-controls-row {
+  display: flex;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.ctrl-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  height: 38px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.ctrl-btn:active {
+  transform: scale(0.97);
+}
+
+.ctrl-btn.pause-btn {
+  background: rgba(59, 130, 246, 0.08);
+  border-color: rgba(59, 130, 246, 0.25);
+  color: var(--accent-sky);
+}
+
+.ctrl-btn.pause-btn:hover {
+  background: rgba(59, 130, 246, 0.15);
+  border-color: var(--accent-sky);
+}
+
+.ctrl-btn.cancel-btn {
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #F87171;
+}
+
+.ctrl-btn.cancel-btn:hover {
+  background: rgba(239, 68, 68, 0.16);
+  border-color: #EF4444;
+}
+
+.ctrl-icon {
+  flex-shrink: 0;
 }
 
 .tracklist-progress {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 140px;
+  max-height: 160px;
   overflow-y: auto;
+  margin-top: 4px;
 }
 
 .track-prog-item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 8px;
-  background: rgba(0, 0, 0, 0.2);
-  border-radius: 6px;
+  padding: 8px 10px;
+  background: rgba(0, 0, 0, 0.3);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  border-radius: 8px;
   font-size: 12px;
 }
 
@@ -874,12 +938,46 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   margin-right: 8px;
+  color: var(--text-primary);
+  font-weight: 500;
 }
 
-.track-prog-status {
-  font-size: 11px;
+.track-prog-badge {
+  font-size: 10px;
   font-family: 'JetBrains Mono', monospace;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+.track-prog-badge.queued {
+  background: rgba(255, 255, 255, 0.08);
   color: var(--text-muted);
+}
+
+.track-prog-badge.downloading {
+  background: rgba(59, 130, 246, 0.18);
+  color: var(--accent-sky);
+  border: 1px solid rgba(59, 130, 246, 0.35);
+}
+
+.track-prog-badge.converting {
+  background: rgba(234, 179, 8, 0.18);
+  color: #FBBF24;
+  border: 1px solid rgba(234, 179, 8, 0.35);
+}
+
+.track-prog-badge.done {
+  background: rgba(16, 185, 129, 0.18);
+  color: #34D399;
+  border: 1px solid rgba(16, 185, 129, 0.35);
+}
+
+.track-prog-badge.error {
+  background: rgba(239, 68, 68, 0.18);
+  color: #F87171;
+  border: 1px solid rgba(239, 68, 68, 0.35);
 }
 
 /* Footer */

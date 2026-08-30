@@ -35,9 +35,14 @@ document.addEventListener('DOMContentLoaded', () => {
   const progressPanel = document.getElementById('progressPanel');
   const statusLabel = document.getElementById('statusLabel');
   const percentageLabel = document.getElementById('percentageLabel');
-  const progressBarFill = document.getElementById('progressBarFill');
   const speedLabel = document.getElementById('speedLabel');
+  const countLabel = document.getElementById('countLabel');
   const etaLabel = document.getElementById('etaLabel');
+  const pauseResumeBtn = document.getElementById('pauseResumeBtn');
+  const pauseResumeText = document.getElementById('pauseResumeText');
+  const cancelBtn = document.getElementById('cancelBtn');
+  const pauseIcon = pauseResumeBtn ? pauseResumeBtn.querySelector('.pause-icon') : null;
+  const playIcon = pauseResumeBtn ? pauseResumeBtn.querySelector('.play-icon') : null;
   const tracklistProgress = document.getElementById('tracklistProgress');
   const creatorLink = document.getElementById('creatorLink');
 
@@ -50,6 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   let autoDownloadTimer = null;
   let activeEventSource = null;
   let apiBase = '';
+  let isTaskPaused = false;
 
   // Native Android Bridge Helper
   const isAndroid = () => typeof window.Android !== 'undefined';
@@ -416,17 +422,67 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   // ── Download & Conversion Flow ───────────────────────────────────────────
+  function resetControlButtons() {
+    isTaskPaused = false;
+    if (pauseResumeText) pauseResumeText.textContent = 'Pause';
+    if (pauseIcon) pauseIcon.style.display = 'inline-block';
+    if (playIcon) playIcon.style.display = 'none';
+  }
+
+  if (pauseResumeBtn) {
+    pauseResumeBtn.addEventListener('click', () => {
+      triggerHaptic(40);
+      if (!isTaskPaused) {
+        if (usesOnDeviceEngine()) {
+          window.Android.pauseTask();
+        }
+        isTaskPaused = true;
+        if (pauseResumeText) pauseResumeText.textContent = 'Resume';
+        if (pauseIcon) pauseIcon.style.display = 'none';
+        if (playIcon) playIcon.style.display = 'inline-block';
+        statusLabel.textContent = '⏸️ Task Paused';
+      } else {
+        if (usesOnDeviceEngine()) {
+          window.Android.resumeTask();
+        }
+        isTaskPaused = false;
+        if (pauseResumeText) pauseResumeText.textContent = 'Pause';
+        if (pauseIcon) pauseIcon.style.display = 'inline-block';
+        if (playIcon) playIcon.style.display = 'none';
+        statusLabel.textContent = 'Resuming...';
+      }
+    });
+  }
+
+  if (cancelBtn) {
+    cancelBtn.addEventListener('click', () => {
+      triggerHaptic(50);
+      if (usesOnDeviceEngine()) {
+        window.Android.cancelTask();
+      }
+      resetControlButtons();
+      progressPanel.classList.remove('visible');
+      downloadBtn.disabled = false;
+      btnText.textContent = 'Convert & Download MP3';
+      showNotification('Task cancelled');
+    });
+  }
+
   downloadBtn.addEventListener('click', async () => {
     if (!activeEntity) return;
 
     triggerHaptic(50);
+    resetControlButtons();
     downloadBtn.disabled = true;
-    btnText.textContent = 'Initializing On-Device Engine...';
+    btnText.textContent = 'Extracting Audio...';
     progressPanel.classList.add('visible');
     tracklistProgress.innerHTML = '';
     progressBarFill.style.width = '0%';
     percentageLabel.textContent = '0%';
-    statusLabel.textContent = 'Starting conversion...';
+    statusLabel.textContent = 'Starting download...';
+    if (speedLabel) speedLabel.textContent = '⚡ Starting...';
+    if (countLabel) countLabel.textContent = '0 Tracks';
+    if (etaLabel) etaLabel.textContent = '⏱️ Calculating...';
 
     const urls = currentMode === 'multi' 
       ? (activeEntity.urls || multiInput.value.split('\n').map((v) => v.trim()).filter((v) => v.startsWith('http')))
@@ -511,19 +567,71 @@ document.addEventListener('DOMContentLoaded', () => {
         renderMultiPreview(event);
       } else if (event.kind === 'progress') {
         progressPanel.classList.add('visible');
-        progressBarFill.style.width = `${event.percent || 0}%`;
-        percentageLabel.textContent = `${event.percent || 0}%`;
+        const pct = event.percent || 0;
+        progressBarFill.style.width = `${pct}%`;
+        percentageLabel.textContent = `${pct}%`;
         statusLabel.textContent = event.message || 'Processing on device…';
+
+        if (event.speed) {
+          speedLabel.textContent = `⚡ ${event.speed}`;
+        }
+        if (event.eta) {
+          etaLabel.textContent = `⏱️ ETA: ${event.eta}`;
+        }
+        if (typeof event.total !== 'undefined') {
+          const doneCount = event.completed || 0;
+          countLabel.textContent = `${doneCount}/${event.total} Done`;
+        }
+
+        // Render individual track progress badges if available
+        if (Array.isArray(event.tracks) && event.tracks.length > 0) {
+          tracklistProgress.innerHTML = event.tracks.map((t) => {
+            const statusClass = t.status || 'queued';
+            let label = (t.status || 'queued').toUpperCase();
+            if (t.status === 'downloading' && typeof t.percent !== 'undefined') {
+              label = `${t.percent}%`;
+            }
+            return `
+              <div class="track-prog-item">
+                <span class="track-prog-title">${t.title || 'Track'}</span>
+                <span class="track-prog-badge ${statusClass}">${label}</span>
+              </div>
+            `;
+          }).join('');
+        }
+      } else if (event.kind === 'paused') {
+        isTaskPaused = true;
+        if (pauseResumeText) pauseResumeText.textContent = 'Resume';
+        if (pauseIcon) pauseIcon.style.display = 'none';
+        if (playIcon) playIcon.style.display = 'inline-block';
+        statusLabel.textContent = '⏸️ Task Paused';
+      } else if (event.kind === 'resumed') {
+        isTaskPaused = false;
+        if (pauseResumeText) pauseResumeText.textContent = 'Pause';
+        if (pauseIcon) pauseIcon.style.display = 'inline-block';
+        if (playIcon) playIcon.style.display = 'none';
+        statusLabel.textContent = 'Resuming...';
+      } else if (event.kind === 'cancelled') {
+        resetControlButtons();
+        progressPanel.classList.remove('visible');
+        downloadBtn.disabled = false;
+        btnText.textContent = 'Convert & Download MP3';
+        showNotification('Task cancelled');
       } else if (event.kind === 'complete') {
+        resetControlButtons();
         progressBarFill.style.width = '100%';
         percentageLabel.textContent = '100%';
         const count = event.count || 1;
-        statusLabel.textContent = `✓ Saved ${count} MP3 file(s) to Music/AudioRip`;
+        if (countLabel) countLabel.textContent = `${count}/${count} Done`;
+        if (speedLabel) speedLabel.textContent = '⚡ Complete';
+        if (etaLabel) etaLabel.textContent = '⏱️ 00:00';
+        statusLabel.textContent = `✓ Saved ${count} MP3 file(s) to Downloads/AudioRip`;
         btnText.textContent = 'Convert Another MP3';
         downloadBtn.disabled = false;
         triggerHaptic(80);
-        showNotification(`Saved ${count} MP3 to Music/AudioRip 🎵`);
+        showNotification(`Saved ${count} MP3 to Downloads/AudioRip 🎵`);
       } else if (event.kind === 'error') {
+        resetControlButtons();
         statusLabel.textContent = `Error: ${event.message || 'Conversion failed'}`;
         btnText.textContent = 'Try Again';
         downloadBtn.disabled = false;
@@ -536,7 +644,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // ── In-App Update System & Changelog Viewer (GitHub Releases) ─────────────
-  const CURRENT_VERSION = '1.1.0';
+  const CURRENT_VERSION = '1.1.1';
   const GITHUB_REPO = 'SujalBhure/audiorip-backend';
   
   const versionBadge = document.getElementById('versionBadge');

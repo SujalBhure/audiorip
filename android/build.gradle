@@ -11,8 +11,8 @@ android {
         applicationId 'com.sujalbhure.audiorip'
         minSdk 24
         targetSdk 36
-        versionCode 3
-        versionName '1.1.0'
+        versionCode 4
+        versionName '1.1.1'
 
         // Python 3.11 keeps 32-bit ARM compatibility while supporting current
         // arm64 phones and x86 emulators.
@@ -62,6 +62,10 @@ chaquopy {
 }
 
 dependencies {
+    // Required runtime dependencies for FFmpegKit to prevent NoClassDefFoundError
+    implementation 'com.arthenica:smart-exception-java:0.2.1'
+    implementation 'com.arthenica:smart-exception-common:0.2.1'
+
     // GPL build provides the MP3 encoder needed for an entirely local pipeline.
     implementation 'dev.ffmpegkit-maintained:ffmpeg-kit-full-gpl:8.1.7'
 }

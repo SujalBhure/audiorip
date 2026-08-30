@@ -220,8 +220,30 @@ When transferring this folder to your PC:
 
 ---
 
+## 🚀 Version 1.1.1 Changelog & Updates
+
+1. **⏸️ Pause & ❌ Cancel Controls**:
+   - Added Pause, Resume, and Cancel buttons in the active progress panel.
+   - Background threads suspend gracefully when paused and abort cleanly when cancelled.
+2. **⚡ 3x–4x Faster Parallel Multi-Song Engine**:
+   - Implemented `concurrent.futures.ThreadPoolExecutor(max_workers=3)` in `audiorip_native.py`.
+   - Downloads 3 audio streams concurrently in parallel instead of one-by-one.
+3. **📊 True Overall Aggregate Progress & Live ETA**:
+   - Single unified progress bar (0% $\rightarrow$ 100%) tracking aggregate byte transfers across all tracks.
+   - Real-time aggregate download speed (e.g. `⚡ 4.8 MB/s`) and accurate countdown ETA (`⏱️ 00:24`).
+   - Track counter (`3/10 Done`).
+4. **📋 Live Individual Track Status Badges**:
+   - Per-track status itemizer with live status badges (`QUEUED`, `45%`, `CONVERTING`, `DONE`).
+5. **📁 Direct Downloads Storage**:
+   - All MP3s save directly to `/storage/emulated/0/Download/AudioRip/` and are immediately indexed by Android's `MediaScannerConnection`.
+6. **🐛 FFmpegKit Runtime Dependency Fix**:
+   - Added `com.arthenica:smart-exception-java:0.2.1` and `smart-exception-common:0.2.1` to prevent class-loading exceptions during conversion.
+
+---
+
 ## 👨‍💻 Credits & Attribution
 
 - **Lead Developer**: [sujalbhure](https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg==)
 - **Engine**: yt-dlp & FFmpeg
 - **UI Framework**: Vanilla HTML5 / CSS3 / ES6 (Zero bulky framework overhead, instant startup)
+
