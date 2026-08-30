@@ -35,4 +35,4 @@ cd android-app
 ---
 
 **Author**: [sujalbhure](https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg==)  
-**GitHub**: [https://github.com/SujalBhure/audiorip-backend](https://github.com/SujalBhure/audiorip-backend)
+**GitHub**: [https://github.com/SujalBhure/audiorip](https://github.com/SujalBhure/audiorip)

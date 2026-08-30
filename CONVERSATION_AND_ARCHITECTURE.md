@@ -3,8 +3,8 @@
 > **Project Name**: AudioRip  
 > **Author**: [sujalbhure](https://www.instagram.com/sujallbhure?igsi=MWozaXhsNnJkYXcwcg==)  
 > **Target Platforms**: Android (8.0 to 16 API 35/36), Web, Desktop (Linux/Windows/macOS)  
-> **GitHub Repository**: [https://github.com/SujalBhure/audiorip-backend](https://github.com/SujalBhure/audiorip-backend)  
-> **Latest APK Release**: [https://github.com/SujalBhure/audiorip-backend/releases/tag/v1.1.0](https://github.com/SujalBhure/audiorip-backend/releases/tag/v1.1.0)
+> **GitHub Repository**: [https://github.com/SujalBhure/audiorip](https://github.com/SujalBhure/audiorip)  
+> **Latest APK Release**: [https://github.com/SujalBhure/audiorip/releases/tag/v1.1.1](https://github.com/SujalBhure/audiorip/releases/tag/v1.1.1)
 
 ---
 
@@ -69,7 +69,7 @@ AudioRip is a **standalone on-device Android application** (with companion web/d
 ### Phase 5: In-App Update System & GitHub Release
 - **User Request**: *"how do i send a update popup and state its new feature and bug fixes"*
 - **Implementation**:
-  - Integrated GitHub Releases API (`/repos/SujalBhure/audiorip-backend/releases/latest`).
+  - Integrated GitHub Releases API (`/repos/SujalBhure/audiorip/releases/latest`).
   - Added an in-app popup modal with markdown parser that automatically breaks changelogs into **✨ WHAT'S NEW** and **🐛 BUG FIXES**.
   - Pushed the entire `android/` source code and `v1.0.0` release APK to GitHub.
 
@@ -131,7 +131,7 @@ AudioRip is a **standalone on-device Android application** (with companion web/d
 
 ### Challenge 3: Automated In-App Update System
 * **Implementation**: On app startup (and when tapping the `PRO v1.0` badge), the client queries:
-  `GET https://api.github.com/repos/SujalBhure/audiorip-backend/releases/latest`
+  `GET https://api.github.com/repos/SujalBhure/audiorip/releases/latest`
 * **Version Comparator**:
   ```javascript
   function compareVersions(v1, v2) {
