@@ -505,6 +505,13 @@ def get_info():
     return jsonify(info)
 
 
+@app.route('/api/health')
+@app.route('/healthz')
+def health():
+    return jsonify({'status': 'ok', 'service': 'audiorip', 'version': '1.0.0'})
+
+
+@app.route('/api/inspect', methods=['POST'])
 @app.route('/api/inspect_multi', methods=['POST'])
 def inspect_multi():
     data = request.get_json(silent=True) or {}

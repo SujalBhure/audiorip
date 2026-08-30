@@ -69,36 +69,65 @@ function isValidUrl(str) {
   return /^(https?:\/\/)?(www\.)?(youtube\.com|youtu\.be|music\.youtube\.com)\/.+$/i.test(str.trim());
 }
 
+const API_BASE = window.location.hostname.includes('netlify')
+  ? 'https://audiorip-backend.onrender.com'
+  : '';
+
+// Warm up backend on load
+if (API_BASE) {
+  fetch(`${API_BASE}/api/health`).catch(() => {});
+}
+
+async function apiFetch(path, options = {}, retries = 2) {
+  const url = `${API_BASE}${path}`;
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    try {
+      const res = await fetch(url, options);
+      if ((res.status === 502 || res.status === 504) && attempt < retries) {
+        await new Promise(r => setTimeout(r, 4000));
+        continue;
+      }
+      return res;
+    } catch (err) {
+      if (attempt < retries) {
+        await new Promise(r => setTimeout(r, 3000));
+      } else {
+        throw err;
+      }
+    }
+  }
+}
+
 // ── API Interactions ───────────────────────────────────────────────────────
 async function fetchInfo(url) {
-  const res = await fetch('/api/info', {
+  const res = await apiFetch('/api/info', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ url: url.trim() }),
   });
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || 'Failed to inspect link.');
   return json;
 }
 
 async function inspectMulti(urls) {
-  const res = await fetch('/api/inspect_multi', {
+  const res = await apiFetch('/api/inspect', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ urls }),
   });
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || 'Failed to inspect multi-links.');
   return json;
 }
 
 async function startTask(urls, quality) {
-  const res = await fetch('/api/download', {
+  const res = await apiFetch('/api/download', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ urls, quality }),
   });
-  const json = await res.json();
+  const json = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(json.error || 'Failed to initialize engine.');
   return json.task_id;
 }
