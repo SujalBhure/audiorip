@@ -16,4 +16,4 @@ dependencyResolutionManagement {
 
 rootProject.name = 'AudioRipOnDevice'
 include ':app'
-project(':app').projectDir = file('android-app')
+project(':app').projectDir = file('android')

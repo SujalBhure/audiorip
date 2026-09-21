@@ -242,9 +242,56 @@ document.addEventListener('DOMContentLoaded', () => {
     handleAutoFetch();
   };
 
+  // ── URL Extraction Helper ────────────────────────────────────────────────
+  function extractUrls(text) {
+    if (!text) return [];
+    const urlRegex = /(https?:\/\/[^\s,;"'<>\(\)\[\]\{\}]+)/gi;
+    const matches = text.match(urlRegex) || [];
+    return [...new Set(matches.map((u) => u.trim()))];
+  }
+
+  // ── Live ETA Countdown Engine ────────────────────────────────────────────
+  let etaCountdownSeconds = 0;
+  let etaCountdownTimer = null;
+
+  function formatEtaDisplay(seconds) {
+    if (seconds == null || seconds < 0 || seconds > 86400) return '--';
+    const m = Math.floor(seconds / 60);
+    const s = Math.floor(seconds % 60);
+    const h = Math.floor(m / 60);
+    if (h > 0) {
+      return `${String(h).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+    }
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  }
+
+  function startEtaCountdown(initialSeconds) {
+    if (typeof initialSeconds === 'number' && initialSeconds >= 0) {
+      etaCountdownSeconds = initialSeconds;
+      if (etaLabel) etaLabel.textContent = `⏱️ ETA: ${formatEtaDisplay(etaCountdownSeconds)}`;
+    }
+    if (!etaCountdownTimer) {
+      etaCountdownTimer = setInterval(() => {
+        if (!isTaskPaused && etaCountdownSeconds > 0) {
+          etaCountdownSeconds--;
+          if (etaLabel) etaLabel.textContent = `⏱️ ETA: ${formatEtaDisplay(etaCountdownSeconds)}`;
+        }
+      }, 1000);
+    }
+  }
+
+  function stopEtaCountdown() {
+    if (etaCountdownTimer) {
+      clearInterval(etaCountdownTimer);
+      etaCountdownTimer = null;
+    }
+  }
+
   // ── Auto-Fetch & Metadata Resolution ─────────────────────────────────────
   async function handleAutoFetch() {
-    const url = urlInput.value.trim();
+    const raw = urlInput.value.trim();
+    const urls = extractUrls(raw);
+    const url = urls.length > 0 ? urls[0] : raw;
     if (!url || !url.startsWith('http')) {
       resetPreview();
       return;
@@ -279,24 +326,41 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   }
 
-  // ── Multi-Link Batch Inspector ───────────────────────────────────────────
-  inspectBtn.addEventListener('click', async () => {
-    const lines = multiInput.value
-      .split('\n')
-      .map((l) => l.trim())
-      .filter((l) => l.startsWith('http'));
+  // ── Multi-Link Live URL Detection & Batch Inspector ─────────────────────
+  multiInput.addEventListener('input', () => {
+    const urls = extractUrls(multiInput.value);
+    if (urls.length > 0) {
+      activeEntity = {
+        type: 'multi',
+        total_tracks: urls.length,
+        urls: urls
+      };
+      downloadBtn.disabled = false;
+      btnText.textContent = `Convert ${urls.length} Track${urls.length > 1 ? 's' : ''} (MP3)`;
+      previewCard.classList.remove('visible');
+    } else {
+      if (currentMode === 'multi') {
+        activeEntity = null;
+        downloadBtn.disabled = true;
+        btnText.textContent = 'Convert & Download MP3';
+      }
+    }
+  });
 
-    if (lines.length === 0) {
-      showNotification('Please paste at least one valid URL');
+  inspectBtn.addEventListener('click', async () => {
+    const urls = extractUrls(multiInput.value);
+
+    if (urls.length === 0) {
+      showNotification('Please paste at least one valid audio URL');
       return;
     }
 
     triggerHaptic(40);
-    showLoadingPreview('Inspecting all playlist & song links on-device...');
+    showLoadingPreview(`Inspecting ${urls.length} links on-device...`);
 
     // 100% On-Device Engine path
     if (usesOnDeviceEngine()) {
-      window.Android.inspectManyOnDevice(JSON.stringify(lines));
+      window.Android.inspectManyOnDevice(JSON.stringify(urls));
       return;
     }
 
@@ -305,7 +369,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await localFetch('/api/inspect', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls: lines })
+        body: JSON.stringify({ urls: urls })
       });
 
       if (!res.ok) {
@@ -314,7 +378,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
 
       const data = await res.json();
-      activeEntity = { type: 'multi', ...data, urls: lines };
+      activeEntity = { type: 'multi', ...data, urls: urls };
       renderMultiPreview(data);
     } catch (err) {
       showErrorPreview(err.message);
@@ -457,11 +521,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (cancelBtn) {
     cancelBtn.addEventListener('click', () => {
       triggerHaptic(50);
+      stopEtaCountdown();
       if (usesOnDeviceEngine()) {
         window.Android.cancelTask();
       }
       resetControlButtons();
-      progressPanel.classList.remove('visible');
+      progressPanel.classList.remove('visible', 'completed', 'done');
       downloadBtn.disabled = false;
       btnText.textContent = 'Convert & Download MP3';
       showNotification('Task cancelled');
@@ -469,24 +534,30 @@ document.addEventListener('DOMContentLoaded', () => {
   }
 
   downloadBtn.addEventListener('click', async () => {
-    if (!activeEntity) return;
-
     triggerHaptic(50);
     resetControlButtons();
+    stopEtaCountdown();
+
+    const urls = currentMode === 'multi' 
+      ? extractUrls(multiInput.value)
+      : extractUrls(urlInput.value);
+
+    if (urls.length === 0) {
+      showNotification('Please enter at least one valid audio URL');
+      return;
+    }
+
     downloadBtn.disabled = true;
     btnText.textContent = 'Extracting Audio...';
+    progressPanel.classList.remove('completed', 'done');
     progressPanel.classList.add('visible');
     tracklistProgress.innerHTML = '';
     progressBarFill.style.width = '0%';
     percentageLabel.textContent = '0%';
     statusLabel.textContent = 'Starting download...';
     if (speedLabel) speedLabel.textContent = '⚡ Starting...';
-    if (countLabel) countLabel.textContent = '0 Tracks';
+    if (countLabel) countLabel.textContent = `${urls.length} Track${urls.length > 1 ? 's' : ''}`;
     if (etaLabel) etaLabel.textContent = '⏱️ Calculating...';
-
-    const urls = currentMode === 'multi' 
-      ? (activeEntity.urls || multiInput.value.split('\n').map((v) => v.trim()).filter((v) => v.startsWith('http')))
-      : [urlInput.value.trim()];
 
     // 100% On-Device Engine execution
     if (usesOnDeviceEngine()) {
@@ -535,6 +606,8 @@ document.addEventListener('DOMContentLoaded', () => {
         statusLabel.textContent = `Converting ${total} Tracks...`;
       } else if (data.status === 'completed' || data.status === 'done') {
         activeEventSource.close();
+        stopEtaCountdown();
+        progressPanel.classList.add('completed');
         progressBarFill.style.width = '100%';
         percentageLabel.textContent = '100%';
         statusLabel.textContent = '✓ Conversion Complete!';
@@ -543,6 +616,8 @@ document.addEventListener('DOMContentLoaded', () => {
         triggerHaptic(80);
       } else if (data.status === 'error') {
         activeEventSource.close();
+        stopEtaCountdown();
+        progressPanel.classList.remove('completed', 'done');
         statusLabel.textContent = `Error: ${data.error || 'Conversion failed'}`;
         downloadBtn.disabled = false;
         btnText.textContent = 'Retry Download';
@@ -562,7 +637,7 @@ document.addEventListener('DOMContentLoaded', () => {
         activeEntity = {
           type: 'multi',
           ...event,
-          urls: event.urls || multiInput.value.split('\n').map((v) => v.trim()).filter((v) => v.startsWith('http'))
+          urls: event.urls || extractUrls(multiInput.value)
         };
         renderMultiPreview(event);
       } else if (event.kind === 'progress') {
@@ -575,9 +650,14 @@ document.addEventListener('DOMContentLoaded', () => {
         if (event.speed) {
           speedLabel.textContent = `⚡ ${event.speed}`;
         }
-        if (event.eta) {
+        
+        // Start smooth live real-time ETA countdown
+        if (typeof event.eta_seconds === 'number') {
+          startEtaCountdown(event.eta_seconds);
+        } else if (event.eta) {
           etaLabel.textContent = `⏱️ ETA: ${event.eta}`;
         }
+
         if (typeof event.total !== 'undefined') {
           const doneCount = event.completed || 0;
           countLabel.textContent = `${doneCount}/${event.total} Done`;
@@ -612,17 +692,22 @@ document.addEventListener('DOMContentLoaded', () => {
         if (playIcon) playIcon.style.display = 'none';
         statusLabel.textContent = 'Resuming...';
       } else if (event.kind === 'cancelled') {
+        stopEtaCountdown();
         resetControlButtons();
-        progressPanel.classList.remove('visible');
+        progressPanel.classList.remove('visible', 'completed', 'done');
         downloadBtn.disabled = false;
         btnText.textContent = 'Convert & Download MP3';
         showNotification('Task cancelled');
       } else if (event.kind === 'complete') {
+        stopEtaCountdown();
         resetControlButtons();
+        // Stop loading animation immediately & show solid emerald complete state
+        progressPanel.classList.add('completed');
         progressBarFill.style.width = '100%';
         percentageLabel.textContent = '100%';
         const count = event.count || 1;
-        if (countLabel) countLabel.textContent = `${count}/${count} Done`;
+        const total = event.total || count;
+        if (countLabel) countLabel.textContent = `${count}/${total} Done`;
         if (speedLabel) speedLabel.textContent = '⚡ Complete';
         if (etaLabel) etaLabel.textContent = '⏱️ 00:00';
         statusLabel.textContent = `✓ Saved ${count} MP3 file(s) to Downloads/AudioRip`;
@@ -631,7 +716,9 @@ document.addEventListener('DOMContentLoaded', () => {
         triggerHaptic(80);
         showNotification(`Saved ${count} MP3 to Downloads/AudioRip 🎵`);
       } else if (event.kind === 'error') {
+        stopEtaCountdown();
         resetControlButtons();
+        progressPanel.classList.remove('completed', 'done');
         statusLabel.textContent = `Error: ${event.message || 'Conversion failed'}`;
         btnText.textContent = 'Try Again';
         downloadBtn.disabled = false;
@@ -644,7 +731,8 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // ── In-App Update System & Changelog Viewer (GitHub Releases) ─────────────
-  const CURRENT_VERSION = '1.1.2';
+  const CURRENT_VERSION = '1.1.3';
+
   const GITHUB_REPO = 'SujalBhure/audiorip';
   
   const versionBadge = document.getElementById('versionBadge');

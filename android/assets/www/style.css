@@ -842,6 +842,31 @@ body {
   100% { background-position: 20px 20px; }
 }
 
+/* Finished / Completed State: Completely stop loading animations */
+.progress-panel.completed .progress-bar-fill::after,
+.progress-panel.done .progress-bar-fill::after {
+  animation: none !important;
+  background-image: none !important;
+  display: none !important;
+}
+
+.progress-panel.completed .progress-bar-fill,
+.progress-panel.done .progress-bar-fill {
+  background: linear-gradient(90deg, #10B981, #34D399) !important;
+}
+
+.progress-panel.completed .status-dot,
+.progress-panel.done .status-dot {
+  animation: none !important;
+  background: #10B981 !important;
+  box-shadow: 0 0 10px rgba(16, 185, 129, 0.6) !important;
+}
+
+.progress-panel.completed .percentage-label,
+.progress-panel.done .percentage-label {
+  color: #34D399 !important;
+}
+
 .progress-meta-row {
   display: flex;
   justify-content: space-between;

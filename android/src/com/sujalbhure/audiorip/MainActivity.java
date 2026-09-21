@@ -352,6 +352,9 @@ public class MainActivity extends Activity {
 
                     JSONArray files = new JSONObject(response).getJSONArray("files");
                     int total = files.length();
+                    int successCount = 0;
+                    long convertStartTime = System.currentTimeMillis();
+
                     for (int i = 0; i < total; i++) {
                         checkPauseAndCancel();
 
@@ -360,43 +363,74 @@ public class MainActivity extends Activity {
                         File input = new File(item.getString("path"));
                         File output = new File(workDir, "converted-" + System.nanoTime() + ".mp3");
                         
-                        int convertPercent = 60 + (int) (35.0 * i / total);
+                        int convertPercent = 60 + (int) (38.0 * i / Math.max(1, total));
+                        long elapsed = System.currentTimeMillis() - convertStartTime;
+                        int etaSeconds;
+                        if (i > 0 && elapsed > 0) {
+                            double msPerTrack = (double) elapsed / i;
+                            etaSeconds = (int) Math.round((msPerTrack * (total - i)) / 1000.0);
+                        } else {
+                            etaSeconds = Math.max(1, (total - i) * 3);
+                        }
+                        int m = etaSeconds / 60;
+                        int s = etaSeconds % 60;
+                        String etaStr = String.format("%02d:%02d", m, s);
+
                         JSONObject progressObj = new JSONObject();
                         progressObj.put("message", "Converting " + (i + 1) + "/" + total + " (" + safeBitrate(bitrate) + "kbps MP3)…");
                         progressObj.put("percent", convertPercent);
                         progressObj.put("completed", i);
                         progressObj.put("total", total);
                         progressObj.put("phase", "converting");
+                        progressObj.put("speed", "Encoding MP3");
+                        progressObj.put("eta", etaStr);
+                        progressObj.put("eta_seconds", etaSeconds);
                         emit("progress", progressObj);
                         
-                        String command = "-y -threads 0 -i " + quote(input.getAbsolutePath())
-                            + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
-                            + "k -map_metadata 0 " + quote(output.getAbsolutePath());
-                        
-                        FFmpegSession session = null;
+                        boolean converted = false;
                         try {
-                            session = FFmpegKit.execute(command);
-                        } catch (Throwable ignored) {}
-
-                        checkPauseAndCancel();
-
-                        if (session == null || !ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
-                            String fallbackCmd = "-y -threads 0 -i " + quote(input.getAbsolutePath())
+                            String command = "-y -threads 0 -i " + quote(input.getAbsolutePath())
                                 + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
-                                + "k " + quote(output.getAbsolutePath());
-                            session = FFmpegKit.execute(fallbackCmd);
+                                + "k -map_metadata 0 " + quote(output.getAbsolutePath());
+                            
+                            FFmpegSession session = null;
+                            try {
+                                session = FFmpegKit.execute(command);
+                            } catch (Throwable ignored) {}
+
+                            checkPauseAndCancel();
+
                             if (session == null || !ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
-                                throw new IllegalStateException("MP3 conversion failed for: " + title);
+                                String fallbackCmd = "-y -threads 0 -i " + quote(input.getAbsolutePath())
+                                    + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
+                                    + "k " + quote(output.getAbsolutePath());
+                                session = FFmpegKit.execute(fallbackCmd);
                             }
+                            
+                            checkPauseAndCancel();
+
+                            if (session != null && ReturnCode.isSuccess(session.getReturnCode()) && output.isFile()) {
+                                saveMp3(output, title + ".mp3");
+                                successCount++;
+                                converted = true;
+                            } else {
+                                android.util.Log.e("AudioRip", "Conversion failed for: " + title);
+                            }
+                        } catch (Exception convErr) {
+                            if (isCancelled) throw convErr;
+                            android.util.Log.e("AudioRip", "Track conversion exception for " + title, convErr);
+                        } finally {
+                            if (input.exists()) input.delete();
+                            if (output.exists()) output.delete();
                         }
-                        
-                        checkPauseAndCancel();
-                        saveMp3(output, title + ".mp3");
-                        if (input.exists()) input.delete();
-                        if (output.exists()) output.delete();
                     }
+
+                    if (successCount == 0 && total > 0) {
+                        throw new IllegalStateException("Failed to convert any tracks to MP3.");
+                    }
+
                     emitProgress("Saved to Downloads/AudioRip", 100);
-                    emit("complete", new JSONObject().put("count", total));
+                    emit("complete", new JSONObject().put("count", successCount).put("total", total));
                 } catch (Throwable e) {
                     if (isCancelled) {
                         emit("cancelled", new JSONObject());
