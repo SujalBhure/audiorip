@@ -4,9 +4,12 @@
 *.key
 *.pem
 *.token
+cookies.txt
+*cookies*
 
 # Temporary and Output Downloads
 downloads/
+dist/
 *.zip
 *.mp3
 *.m4a
