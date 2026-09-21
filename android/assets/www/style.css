@@ -392,6 +392,59 @@ body {
   border-color: var(--accent-blue);
 }
 
+/* Format Switcher (Audio vs Video) */
+.format-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.format-switcher {
+  display: flex;
+  gap: 8px;
+  background: var(--bg-canvas);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  padding: 4px;
+}
+
+.format-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-muted);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.format-btn svg {
+  stroke: var(--text-muted);
+  transition: stroke 0.2s ease, transform 0.2s ease;
+}
+
+.format-btn:active {
+  transform: scale(0.97);
+}
+
+.format-btn.active {
+  background: rgba(59, 130, 246, 0.15);
+  color: var(--accent-sky);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.format-btn.active svg {
+  stroke: var(--accent-sky);
+  transform: scale(1.05);
+}
+
 /* Quality Chips */
 .quality-section {
   display: flex;
@@ -865,6 +918,11 @@ body {
 .progress-panel.completed .percentage-label,
 .progress-panel.done .percentage-label {
   color: #34D399 !important;
+}
+
+.progress-panel.completed .progress-controls-row,
+.progress-panel.done .progress-controls-row {
+  display: none !important;
 }
 
 .progress-meta-row {

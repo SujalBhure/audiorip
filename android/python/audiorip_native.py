@@ -139,9 +139,10 @@ def inspect_many(urls_json):
 
 class AggregateDownloadTracker:
     """Accurately calculates rolling real-time byte speed and smooth ETA countdown."""
-    def __init__(self, items, progress_cb=None):
+    def __init__(self, items, progress_cb=None, media_type="audio"):
         self.total_tracks = len(items)
         self.progress_cb = progress_cb
+        self.media_type = media_type
         self.tracks = {}
         for idx, item in enumerate(items):
             self.tracks[idx] = {
@@ -212,7 +213,8 @@ class AggregateDownloadTracker:
             avg_track_size = sum(known_totals) / len(known_totals)
             projected_total = int(sum(known_totals) + (self.total_tracks - len(known_totals)) * avg_track_size)
         else:
-            projected_total = self.total_tracks * 5 * 1024 * 1024  # Default ~5MB per stream
+            default_mb = 35 if self.media_type == "video" else 5
+            projected_total = self.total_tracks * default_mb * 1024 * 1024
 
         projected_total = max(projected_total, downloaded_bytes)
         
@@ -308,18 +310,94 @@ def _resolve_items_to_download(urls):
     return items
 
 
-def _download_single_item(idx, item, outdir, tracker, cancel_check_fn=None):
-    """Worker function to download an individual audio stream with progress reporting."""
+def _download_single_item(idx, item, outdir, tracker, cancel_check_fn=None, media_type="audio", quality="320"):
+    """Worker function to download an individual audio or video stream with progress reporting."""
     if cancel_check_fn and cancel_check_fn():
         raise RuntimeError("Cancelled by user")
 
     tracker.update_track(idx, 0, 0, status="downloading")
+
+    if media_type == "video":
+        max_h = int(quality) if str(quality).isdigit() else 1080
+        video_template = str(outdir / f"%(title).120B-{idx}-video-%(id)s.%(ext)s")
+
+        def _video_hook(d):
+            if cancel_check_fn and cancel_check_fn():
+                raise RuntimeError("Cancelled by user")
+            status = d.get("status")
+            if status == "downloading":
+                total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
+                downloaded = d.get("downloaded_bytes") or 0
+                tracker.update_track(idx, downloaded, total, status="downloading")
+            elif status == "finished":
+                total = d.get("total_bytes") or d.get("downloaded_bytes") or 0
+                tracker.update_track(idx, total, total, status="downloading")
+
+        video_options = {
+            "quiet": True,
+            "no_warnings": True,
+            # Best video up to max_h. Avoid merging with '+' to prevent yt-dlp requiring ffmpeg CLI
+            "format": f"bestvideo[height<={max_h}][ext=mp4]/bestvideo[height<={max_h}]/best[height<={max_h}]/bestvideo/best",
+            "noplaylist": True,
+            "outtmpl": video_template,
+            "socket_timeout": 20,
+            "retries": 3,
+            "fragment_retries": 3,
+            "concurrent_fragment_downloads": 2,
+            "overwrites": True,
+            "progress_hooks": [_video_hook]
+        }
+
+        with yt_dlp.YoutubeDL(video_options) as ydl:
+            info = ydl.extract_info(item["url"], download=True)
+            video_path = ydl.prepare_filename(info)
+            title = _safe_name(info.get("title") or item["title"])
+
+        if not os.path.exists(video_path):
+            raise FileNotFoundError(f"Downloaded video stream not found: {video_path}")
+
+        has_audio = (info.get("acodec") not in (None, "none"))
+        audio_path = None
+
+        if not has_audio:
+            if cancel_check_fn and cancel_check_fn():
+                raise RuntimeError("Cancelled by user")
+
+            audio_template = str(outdir / f"%(title).120B-{idx}-audio-%(id)s.%(ext)s")
+            audio_options = {
+                "quiet": True,
+                "no_warnings": True,
+                "format": "bestaudio[ext=m4a]/bestaudio/ba",
+                "noplaylist": True,
+                "outtmpl": audio_template,
+                "socket_timeout": 20,
+                "retries": 3,
+                "overwrites": True
+            }
+            try:
+                with yt_dlp.YoutubeDL(audio_options) as ydl_audio:
+                    audio_info = ydl_audio.extract_info(item["url"], download=True)
+                    audio_cand = ydl_audio.prepare_filename(audio_info)
+                    if os.path.exists(audio_cand):
+                        audio_path = audio_cand
+            except Exception:
+                audio_path = None
+
+        tracker.mark_completed(idx, video_path, title)
+        return {
+            "is_video": True,
+            "video_path": video_path,
+            "audio_path": audio_path,
+            "title": title,
+            "id": info.get("id") or item["id"]
+        }
+
+    # Audio download mode
     template = str(outdir / f"%(title).120B-{idx}-%(id)s.%(ext)s")
 
     def _hook(d):
         if cancel_check_fn and cancel_check_fn():
             raise RuntimeError("Cancelled by user")
-        
         status = d.get("status")
         if status == "downloading":
             total = d.get("total_bytes") or d.get("total_bytes_estimate") or 0
@@ -350,6 +428,7 @@ def _download_single_item(idx, item, outdir, tracker, cancel_check_fn=None):
         if os.path.exists(path):
             tracker.mark_completed(idx, path, title)
             return {
+                "is_video": False,
                 "path": path,
                 "title": title,
                 "id": info.get("id") or item["id"]
@@ -358,8 +437,8 @@ def _download_single_item(idx, item, outdir, tracker, cancel_check_fn=None):
             raise FileNotFoundError(f"Downloaded stream not found: {path}")
 
 
-def download(urls_json, output_dir, progress_cb=None):
-    """Download audio streams concurrently using up to 3 parallel workers."""
+def download(urls_json, output_dir, progress_cb=None, media_type="audio", quality="320"):
+    """Download audio or video streams concurrently using up to 3 parallel workers."""
     urls = json.loads(urls_json) if isinstance(urls_json, str) else urls_json
     outdir = Path(output_dir)
     outdir.mkdir(parents=True, exist_ok=True)
@@ -375,10 +454,11 @@ def download(urls_json, output_dir, progress_cb=None):
     # 1. Resolve all track items (flattening playlists and multi URLs)
     items = _resolve_items_to_download(urls)
     if not items:
-        raise RuntimeError("No downloadable audio tracks found in the provided links.")
+        media_label = "video" if media_type == "video" else "audio"
+        raise RuntimeError(f"No downloadable {media_label} items found in the provided links.")
 
     # 2. Initialize aggregate progress tracker with real-time ETA engine
-    tracker = AggregateDownloadTracker(items, progress_cb=progress_cb)
+    tracker = AggregateDownloadTracker(items, progress_cb=progress_cb, media_type=media_type)
 
     # 3. Parallel download with ThreadPoolExecutor (max 3 workers for optimal mobile performance)
     max_workers = min(3, max(1, len(items)))
@@ -387,7 +467,7 @@ def download(urls_json, output_dir, progress_cb=None):
 
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
         future_to_item = {
-            executor.submit(_download_single_item, idx, item, outdir, tracker, _is_cancelled): (idx, item)
+            executor.submit(_download_single_item, idx, item, outdir, tracker, _is_cancelled, media_type, quality): (idx, item)
             for idx, item in enumerate(items)
         }
 
@@ -401,6 +481,6 @@ def download(urls_json, output_dir, progress_cb=None):
                 tracker.update_track(idx, 0, 0, status="error")
 
     if not results:
-        raise RuntimeError(errors[0] if errors else "Failed to download audio streams.")
+        raise RuntimeError(errors[0] if errors else "Failed to download streams.")
 
     return json.dumps({"files": results, "errors": errors, "total": len(items), "successful": len(results)})

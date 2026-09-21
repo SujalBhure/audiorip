@@ -299,7 +299,12 @@ public class MainActivity extends Activity {
         }
 
         @JavascriptInterface
-        public void convertOnDevice(final String urlsJson, final String bitrate) {
+        public void convertOnDevice(final String urlsJson, final String quality) {
+            convertOnDevice(urlsJson, quality, "audio");
+        }
+
+        @JavascriptInterface
+        public void convertOnDevice(final String urlsJson, final String quality, final String mediaType) {
             worker.execute(() -> {
                 synchronized (pauseLock) {
                     isPaused = false;
@@ -308,7 +313,8 @@ public class MainActivity extends Activity {
                 File workDir = new File(getCacheDir(), "audiorip-downloads");
                 if (!workDir.exists()) workDir.mkdirs();
                 try {
-                    emitProgress("Preparing audio extraction…", 5);
+                    boolean isVideo = "video".equalsIgnoreCase(mediaType);
+                    emitProgress(isVideo ? "Preparing video download…" : "Preparing audio extraction…", 5);
 
                     NativeProgressCallback callback = new NativeProgressCallback() {
                         @Override
@@ -317,25 +323,25 @@ public class MainActivity extends Activity {
                             try {
                                 JSONObject obj = new JSONObject(jsonStr);
                                 int overall = obj.optInt("overall_percent", 0);
-                                int mapped = 5 + (int) (overall * 0.55);
+                                int mapped = 5 + (int) (overall * 0.65);
                                 obj.put("percent", mapped);
                                 int completed = obj.optInt("completed", 0);
                                 int total = obj.optInt("total", 1);
                                 String speed = obj.optString("speed", "");
-                                String msg = "Downloading " + (completed + 1) + " of " + total + " tracks…";
+                                String msg = (isVideo ? "Downloading video " : "Downloading track ") + (completed + 1) + " of " + total + "…";
                                 if (!speed.isEmpty()) msg += " (" + speed + ")";
                                 obj.put("message", msg);
                                 obj.put("phase", "downloading");
                                 emit("progress", obj);
                             } catch (Exception e) {
-                                emitProgress("Downloading audio streams…", 20);
+                                emitProgress(isVideo ? "Downloading video streams…" : "Downloading audio streams…", 20);
                             }
                         }
 
                         @Override
                         public void onProgress(String message, int percent) {
                             checkPauseAndCancel();
-                            int mapped = 5 + (int) (percent * 0.55);
+                            int mapped = 5 + (int) (percent * 0.65);
                             emitProgress(message, mapped);
                         }
 
@@ -346,7 +352,7 @@ public class MainActivity extends Activity {
                     };
 
                     String response = Python.getInstance().getModule("audiorip_native")
-                        .callAttr("download", urlsJson, workDir.getAbsolutePath(), callback).toString();
+                        .callAttr("download", urlsJson, workDir.getAbsolutePath(), callback, mediaType, quality).toString();
                     
                     checkPauseAndCancel();
 
@@ -359,11 +365,10 @@ public class MainActivity extends Activity {
                         checkPauseAndCancel();
 
                         JSONObject item = files.getJSONObject(i);
-                        String title = item.optString("title", "audio");
-                        File input = new File(item.getString("path"));
-                        File output = new File(workDir, "converted-" + System.nanoTime() + ".mp3");
-                        
-                        int convertPercent = 60 + (int) (38.0 * i / Math.max(1, total));
+                        boolean itemIsVideo = item.optBoolean("is_video", isVideo);
+                        String title = item.optString("title", itemIsVideo ? "video" : "audio");
+
+                        int convertPercent = 70 + (int) (28.0 * i / Math.max(1, total));
                         long elapsed = System.currentTimeMillis() - convertStartTime;
                         int etaSeconds;
                         if (i > 0 && elapsed > 0) {
@@ -377,65 +382,124 @@ public class MainActivity extends Activity {
                         String etaStr = String.format("%02d:%02d", m, s);
 
                         JSONObject progressObj = new JSONObject();
-                        progressObj.put("message", "Converting " + (i + 1) + "/" + total + " (" + safeBitrate(bitrate) + "kbps MP3)…");
+                        progressObj.put("message", itemIsVideo
+                            ? "Muxing " + (i + 1) + "/" + total + " (MP4 Video)…"
+                            : "Converting " + (i + 1) + "/" + total + " (" + safeBitrate(quality) + "kbps MP3)…");
                         progressObj.put("percent", convertPercent);
                         progressObj.put("completed", i);
                         progressObj.put("total", total);
                         progressObj.put("phase", "converting");
-                        progressObj.put("speed", "Encoding MP3");
+                        progressObj.put("speed", itemIsVideo ? "Muxing Video" : "Encoding MP3");
                         progressObj.put("eta", etaStr);
                         progressObj.put("eta_seconds", etaSeconds);
                         emit("progress", progressObj);
-                        
-                        boolean converted = false;
-                        try {
-                            String command = "-y -threads 0 -i " + quote(input.getAbsolutePath())
-                                + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
-                                + "k -map_metadata 0 " + quote(output.getAbsolutePath());
-                            
-                            FFmpegSession session = null;
+
+                        if (itemIsVideo) {
+                            File videoInput = new File(item.getString("video_path"));
+                            String audioPath = item.optString("audio_path", null);
+                            File audioInput = (audioPath != null && !audioPath.isEmpty()) ? new File(audioPath) : null;
+                            File output = new File(workDir, "muxed-" + System.nanoTime() + ".mp4");
+
                             try {
-                                session = FFmpegKit.execute(command);
-                            } catch (Throwable ignored) {}
+                                String muxCommand;
+                                if (audioInput != null && audioInput.exists()) {
+                                    // Lossless video stream copy + AAC audio muxing with faststart for streaming
+                                    muxCommand = "-y -threads 0 -i " + quote(videoInput.getAbsolutePath())
+                                        + " -i " + quote(audioInput.getAbsolutePath())
+                                        + " -c:v copy -c:a aac -movflags +faststart " + quote(output.getAbsolutePath());
+                                } else {
+                                    muxCommand = "-y -threads 0 -i " + quote(videoInput.getAbsolutePath())
+                                        + " -c:v copy -c:a copy -movflags +faststart " + quote(output.getAbsolutePath());
+                                }
 
-                            checkPauseAndCancel();
+                                FFmpegSession session = null;
+                                try {
+                                    session = FFmpegKit.execute(muxCommand);
+                                } catch (Throwable ignored) {}
 
-                            if (session == null || !ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
-                                String fallbackCmd = "-y -threads 0 -i " + quote(input.getAbsolutePath())
-                                    + " -vn -c:a libmp3lame -b:a " + safeBitrate(bitrate)
-                                    + "k " + quote(output.getAbsolutePath());
-                                session = FFmpegKit.execute(fallbackCmd);
+                                checkPauseAndCancel();
+
+                                if (session == null || !ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
+                                    String fallbackCmd = (audioInput != null && audioInput.exists())
+                                        ? "-y -threads 0 -i " + quote(videoInput.getAbsolutePath())
+                                            + " -i " + quote(audioInput.getAbsolutePath())
+                                            + " -c copy " + quote(output.getAbsolutePath())
+                                        : "-y -threads 0 -i " + quote(videoInput.getAbsolutePath())
+                                            + " -c copy " + quote(output.getAbsolutePath());
+                                    session = FFmpegKit.execute(fallbackCmd);
+                                }
+
+                                checkPauseAndCancel();
+
+                                if (session != null && ReturnCode.isSuccess(session.getReturnCode()) && output.isFile()) {
+                                    saveMedia(output, title + ".mp4", "video/mp4");
+                                    successCount++;
+                                } else if (videoInput.isFile() && (audioInput == null || !audioInput.exists())) {
+                                    saveMedia(videoInput, title + ".mp4", "video/mp4");
+                                    successCount++;
+                                } else {
+                                    android.util.Log.e("AudioRip", "Video muxing failed for: " + title);
+                                }
+                            } catch (Exception convErr) {
+                                if (isCancelled) throw convErr;
+                                android.util.Log.e("AudioRip", "Video mux exception for " + title, convErr);
+                            } finally {
+                                if (videoInput.exists()) videoInput.delete();
+                                if (audioInput != null && audioInput.exists()) audioInput.delete();
+                                if (output.exists()) output.delete();
                             }
-                            
-                            checkPauseAndCancel();
+                        } else {
+                            File input = new File(item.getString("path"));
+                            File output = new File(workDir, "converted-" + System.nanoTime() + ".mp3");
 
-                            if (session != null && ReturnCode.isSuccess(session.getReturnCode()) && output.isFile()) {
-                                saveMp3(output, title + ".mp3");
-                                successCount++;
-                                converted = true;
-                            } else {
-                                android.util.Log.e("AudioRip", "Conversion failed for: " + title);
+                            try {
+                                String command = "-y -threads 0 -i " + quote(input.getAbsolutePath())
+                                    + " -vn -c:a libmp3lame -b:a " + safeBitrate(quality)
+                                    + "k -map_metadata 0 " + quote(output.getAbsolutePath());
+                                
+                                FFmpegSession session = null;
+                                try {
+                                    session = FFmpegKit.execute(command);
+                                } catch (Throwable ignored) {}
+
+                                checkPauseAndCancel();
+
+                                if (session == null || !ReturnCode.isSuccess(session.getReturnCode()) || !output.isFile()) {
+                                    String fallbackCmd = "-y -threads 0 -i " + quote(input.getAbsolutePath())
+                                        + " -vn -c:a libmp3lame -b:a " + safeBitrate(quality)
+                                        + "k " + quote(output.getAbsolutePath());
+                                    session = FFmpegKit.execute(fallbackCmd);
+                                }
+                                
+                                checkPauseAndCancel();
+
+                                if (session != null && ReturnCode.isSuccess(session.getReturnCode()) && output.isFile()) {
+                                    saveMedia(output, title + ".mp3", "audio/mpeg");
+                                    successCount++;
+                                } else {
+                                    android.util.Log.e("AudioRip", "Conversion failed for: " + title);
+                                }
+                            } catch (Exception convErr) {
+                                if (isCancelled) throw convErr;
+                                android.util.Log.e("AudioRip", "Track conversion exception for " + title, convErr);
+                            } finally {
+                                if (input.exists()) input.delete();
+                                if (output.exists()) output.delete();
                             }
-                        } catch (Exception convErr) {
-                            if (isCancelled) throw convErr;
-                            android.util.Log.e("AudioRip", "Track conversion exception for " + title, convErr);
-                        } finally {
-                            if (input.exists()) input.delete();
-                            if (output.exists()) output.delete();
                         }
                     }
 
                     if (successCount == 0 && total > 0) {
-                        throw new IllegalStateException("Failed to convert any tracks to MP3.");
+                        throw new IllegalStateException("Failed to process any files.");
                     }
 
                     emitProgress("Saved to Downloads/AudioRip", 100);
-                    emit("complete", new JSONObject().put("count", successCount).put("total", total));
+                    emit("complete", new JSONObject().put("count", successCount).put("total", total).put("is_video", isVideo));
                 } catch (Throwable e) {
                     if (isCancelled) {
                         emit("cancelled", new JSONObject());
                     } else {
-                        emitError("Conversion failed: " + friendlyError(e));
+                        emitError("Process failed: " + friendlyError(e));
                     }
                 } finally {
                     File[] remaining = workDir.listFiles();
@@ -461,36 +525,43 @@ public class MainActivity extends Activity {
         }
 
         private void saveMp3(File source, String filename) throws Exception {
+            saveMedia(source, filename, "audio/mpeg");
+        }
+
+        private void saveMedia(File source, String filename, String mimeType) throws Exception {
             filename = filename.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-            if (!filename.toLowerCase().endsWith(".mp3")) {
-                filename += ".mp3";
+            boolean isVideo = mimeType.startsWith("video/");
+            String ext = isVideo ? ".mp4" : ".mp3";
+            if (!filename.toLowerCase().endsWith(ext)) {
+                filename += ext;
             }
             if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
                 File downloadsDir = new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "AudioRip");
                 if (!downloadsDir.exists() && !downloadsDir.mkdirs()) throw new IllegalStateException("Could not create Download/AudioRip");
                 File destination = new File(downloadsDir, filename);
                 int count = 1;
-                String baseName = filename.substring(0, filename.length() - 4);
+                String baseName = filename.substring(0, filename.length() - ext.length());
                 while (destination.exists()) {
-                    destination = new File(downloadsDir, baseName + " (" + count++ + ").mp3");
+                    destination = new File(downloadsDir, baseName + " (" + count++ + ")" + ext);
                 }
                 try (InputStream in = new FileInputStream(source); OutputStream out = new FileOutputStream(destination)) {
                     byte[] buffer = new byte[64 * 1024];
                     for (int read; (read = in.read(buffer)) != -1;) out.write(buffer, 0, read);
                 }
-                MediaScannerConnection.scanFile(context, new String[]{destination.getAbsolutePath()}, new String[]{"audio/mpeg"}, null);
+                MediaScannerConnection.scanFile(context, new String[]{destination.getAbsolutePath()}, new String[]{mimeType}, null);
                 return;
             }
             
             ContentValues values = new ContentValues();
-            values.put(MediaStore.Audio.Media.DISPLAY_NAME, filename);
-            values.put(MediaStore.Audio.Media.MIME_TYPE, "audio/mpeg");
-            values.put(MediaStore.Audio.Media.RELATIVE_PATH, "Download/AudioRip");
-            values.put(MediaStore.Audio.Media.IS_PENDING, 1);
+            Uri targetUri = isVideo ? MediaStore.Video.Media.EXTERNAL_CONTENT_URI : MediaStore.Audio.Media.EXTERNAL_CONTENT_URI;
+            values.put(isVideo ? MediaStore.Video.Media.DISPLAY_NAME : MediaStore.Audio.Media.DISPLAY_NAME, filename);
+            values.put(isVideo ? MediaStore.Video.Media.MIME_TYPE : MediaStore.Audio.Media.MIME_TYPE, mimeType);
+            values.put(isVideo ? MediaStore.Video.Media.RELATIVE_PATH : MediaStore.Audio.Media.RELATIVE_PATH, "Download/AudioRip");
+            values.put(isVideo ? MediaStore.Video.Media.IS_PENDING : MediaStore.Audio.Media.IS_PENDING, 1);
             
             Uri uri = null;
             try {
-                uri = getContentResolver().insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+                uri = getContentResolver().insert(targetUri, values);
             } catch (Exception ignored) {}
             
             if (uri == null) {
@@ -500,11 +571,11 @@ public class MainActivity extends Activity {
             }
 
             if (uri == null) {
-                String baseName = filename.substring(0, filename.length() - 4);
-                String uniqueName = baseName + "_" + (System.currentTimeMillis() % 10000) + ".mp3";
-                values.put(MediaStore.Audio.Media.DISPLAY_NAME, uniqueName);
+                String baseName = filename.substring(0, filename.length() - ext.length());
+                String uniqueName = baseName + "_" + (System.currentTimeMillis() % 10000) + ext;
+                values.put(isVideo ? MediaStore.Video.Media.DISPLAY_NAME : MediaStore.Audio.Media.DISPLAY_NAME, uniqueName);
                 try {
-                    uri = getContentResolver().insert(MediaStore.Audio.Media.EXTERNAL_CONTENT_URI, values);
+                    uri = getContentResolver().insert(targetUri, values);
                 } catch (Exception ignored) {}
             }
             
@@ -516,7 +587,7 @@ public class MainActivity extends Activity {
                     byte[] buffer = new byte[64 * 1024];
                     for (int read; (read = in.read(buffer)) != -1;) out.write(buffer, 0, read);
                 }
-                MediaScannerConnection.scanFile(context, new String[]{destination.getAbsolutePath()}, new String[]{"audio/mpeg"}, null);
+                MediaScannerConnection.scanFile(context, new String[]{destination.getAbsolutePath()}, new String[]{mimeType}, null);
                 return;
             }
             
@@ -528,9 +599,9 @@ public class MainActivity extends Activity {
                 throw e;
             }
             values.clear();
-            values.put(MediaStore.Audio.Media.IS_PENDING, 0);
+            values.put(isVideo ? MediaStore.Video.Media.IS_PENDING : MediaStore.Audio.Media.IS_PENDING, 0);
             getContentResolver().update(uri, values, null, null);
-            MediaScannerConnection.scanFile(context, new String[]{new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "AudioRip/" + filename).getAbsolutePath()}, new String[]{"audio/mpeg"}, null);
+            MediaScannerConnection.scanFile(context, new String[]{new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS), "AudioRip/" + filename).getAbsolutePath()}, new String[]{mimeType}, null);
         }
 
         private String safeBitrate(String value) { return ("128".equals(value) || "192".equals(value) || "320".equals(value)) ? value : "192"; }

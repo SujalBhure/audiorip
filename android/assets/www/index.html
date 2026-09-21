@@ -24,10 +24,10 @@
         </div>
         <div class="brand-text">
           <h1 class="brand-title">Audio<span>Rip</span></h1>
-          <p class="brand-badge" id="versionBadge" title="Tap to check for updates">v1.1.3</p>
+          <p class="brand-badge" id="versionBadge" title="Tap to check for updates">v1.1.4</p>
         </div>
       </div>
-      <p class="brand-subtitle">On-device MP3 conversion engine · Android 7+</p>
+      <p class="brand-subtitle">On-device Audio & Video extraction engine · Android 7+</p>
     </header>
 
     <!-- Segmented Mode Switcher with Sliding Pill Animation -->
@@ -53,29 +53,29 @@
     <main class="main-card">
       <!-- Input Panel: Single & Playlist -->
       <div id="singlePanel" class="input-panel active">
-        <div class="input-group">
+        <div class="input-wrapper">
           <div class="input-icon">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"></path><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"></path></svg>
           </div>
-          <input type="text" id="urlInput" class="custom-input" placeholder="Paste song or playlist link..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
+          <input type="url" id="urlInput" class="custom-input" placeholder="Paste YouTube link..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false">
           <div class="input-actions">
-            <button class="paste-btn" id="pasteBtn" title="Paste from clipboard">
-              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
-              <span>Paste</span>
+            <button class="action-btn clear-btn" id="clearBtn" title="Clear input">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
             </button>
-            <button class="clear-btn" id="clearBtn" title="Clear input">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"></line><line x1="6" y1="6" x2="18" y2="18"></line></svg>
+            <button class="action-btn paste-btn" id="pasteBtn" title="Paste link">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
+              <span>Paste</span>
             </button>
           </div>
         </div>
       </div>
 
-      <!-- Input Panel: Multi-Link Batch -->
+      <!-- Input Panel: Multi-Mode -->
       <div id="multiPanel" class="input-panel">
         <div class="multi-header-row">
-          <span class="panel-hint">Paste mixed song & playlist URLs (one per line):</span>
-          <button class="paste-btn-small" id="multiPasteBtn">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>
+          <label class="section-label">BATCH LINKS (ONE PER LINE OR COMMA)</label>
+          <button class="action-btn paste-btn" id="multiPasteBtn" title="Paste multiple links">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"></path><rect x="8" y="2" width="8" height="4" rx="1" ry="1"></rect></svg>
             <span>Paste</span>
           </button>
         </div>
@@ -86,27 +86,57 @@
         </button>
       </div>
 
-      <!-- Audio Quality Selector -->
+      <!-- Format Switcher (Audio vs Video) -->
+      <div class="format-section">
+        <div class="format-switcher" id="formatSwitcher">
+          <button type="button" class="format-btn active" id="formatAudioBtn" data-format="audio">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"></path><circle cx="6" cy="18" r="3"></circle><circle cx="18" cy="16" r="3"></circle></svg>
+            <span>Audio (MP3)</span>
+          </button>
+          <button type="button" class="format-btn" id="formatVideoBtn" data-format="video">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18"></rect><line x1="7" y1="2" x2="7" y2="22"></line><line x1="17" y1="2" x2="17" y2="22"></line><line x1="2" y1="12" x2="22" y2="12"></line><line x1="2" y1="7" x2="7" y2="7"></line><line x1="2" y1="17" x2="7" y2="17"></line><line x1="17" y1="17" x2="22" y2="17"></line><line x1="17" y1="7" x2="22" y2="7"></line></svg>
+            <span>Video (MP4)</span>
+          </button>
+        </div>
+      </div>
+
+      <!-- Quality Selector (Audio Bitrate or Video Resolution) -->
       <div class="quality-section">
         <div class="section-label-row">
-          <label class="section-label">AUDIO BITRATE</label>
+          <label class="section-label" id="qualityLabel">AUDIO BITRATE</label>
           <button class="autodownload-toggle active" id="autoDownloadToggle" title="Toggle automatic download when link is resolved">
             <span class="toggle-dot"></span>
             <span class="toggle-text">⚡ Auto-Download</span>
           </button>
         </div>
-        <div class="quality-chips" id="qualitySelector">
-          <button class="chip active" data-quality="320">
+        <!-- Audio Quality Chips -->
+        <div class="quality-chips" id="audioQualitySelector">
+          <button type="button" class="chip active" data-quality="320">
             <span class="chip-rate">320 kbps</span>
             <span class="chip-tag">Ultra HD</span>
           </button>
-          <button class="chip" data-quality="192">
+          <button type="button" class="chip" data-quality="192">
             <span class="chip-rate">192 kbps</span>
             <span class="chip-tag">High</span>
           </button>
-          <button class="chip" data-quality="128">
+          <button type="button" class="chip" data-quality="128">
             <span class="chip-rate">128 kbps</span>
             <span class="chip-tag">Compact</span>
+          </button>
+        </div>
+        <!-- Video Quality Chips -->
+        <div class="quality-chips" id="videoQualitySelector" style="display: none;">
+          <button type="button" class="chip active" data-quality="2160">
+            <span class="chip-rate">4K UHD</span>
+            <span class="chip-tag">2160p</span>
+          </button>
+          <button type="button" class="chip" data-quality="1080">
+            <span class="chip-rate">1080p</span>
+            <span class="chip-tag">Full HD</span>
+          </button>
+          <button type="button" class="chip" data-quality="720">
+            <span class="chip-rate">720p</span>
+            <span class="chip-tag">HD</span>
           </button>
         </div>
       </div>
@@ -215,16 +245,16 @@
         <div class="changelog-group">
           <h4 class="changelog-heading">✨ WHAT'S NEW</h4>
           <ul class="changelog-list" id="newFeaturesList">
-            <li>Ultra-fast multi-threaded audio conversion engine</li>
-            <li>Full Android 16 (API 35/36) compatibility & 4-byte page alignment</li>
+            <li>Audio (MP3) & Video (MP4) format selector with 4K UHD, 1080p, and 720p resolution options</li>
+            <li>Lossless on-device video + audio stream muxing using hardware-accelerated FFmpeg</li>
           </ul>
         </div>
 
         <div class="changelog-group">
           <h4 class="changelog-heading">🐛 BUG FIXES & IMPROVEMENTS</h4>
           <ul class="changelog-list" id="bugFixesList">
-          <li>Clearer on-device errors when a source blocks extraction</li>
-            <li>Optimized 320kbps MP3 ID3 tag embedding & metadata discovery</li>
+            <li>Clean completion UI: pause and cancel buttons hide immediately when finished</li>
+            <li>Instant gallery registration for downloaded MP4 videos</li>
           </ul>
         </div>
       </div>

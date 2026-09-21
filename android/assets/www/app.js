@@ -17,7 +17,11 @@ document.addEventListener('DOMContentLoaded', () => {
   const multiPasteBtn = document.getElementById('multiPasteBtn');
   const inspectBtn = document.getElementById('inspectBtn');
   
-  const qualitySelector = document.getElementById('qualitySelector');
+  const formatAudioBtn = document.getElementById('formatAudioBtn');
+  const formatVideoBtn = document.getElementById('formatVideoBtn');
+  const qualityLabel = document.getElementById('qualityLabel');
+  const audioQualitySelector = document.getElementById('audioQualitySelector');
+  const videoQualitySelector = document.getElementById('videoQualitySelector');
   const autoDownloadToggle = document.getElementById('autoDownloadToggle');
   const previewCard = document.getElementById('previewCard');
   const previewSpinner = document.getElementById('previewSpinner');
@@ -33,6 +37,7 @@ document.addEventListener('DOMContentLoaded', () => {
   const downloadBtn = document.getElementById('downloadBtn');
   const btnText = document.getElementById('btnText');
   const progressPanel = document.getElementById('progressPanel');
+  const progressControlsRow = document.querySelector('.progress-controls-row');
   const statusLabel = document.getElementById('statusLabel');
   const percentageLabel = document.getElementById('percentageLabel');
   const speedLabel = document.getElementById('speedLabel');
@@ -48,7 +53,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // App State
   let currentMode = 'single';
-  let selectedQuality = '320';
+  let selectedFormat = 'audio'; // 'audio' or 'video'
+  let selectedAudioQuality = '320';
+  let selectedVideoQuality = '1080';
   let autoDownload = true;
   let activeEntity = null;
   let debounceTimer = null;
@@ -155,15 +162,93 @@ document.addEventListener('DOMContentLoaded', () => {
   tabPlaylist.addEventListener('click', () => setMode('playlist'));
   tabMulti.addEventListener('click', () => setMode('multi'));
 
-  // ── Quality Selector ─────────────────────────────────────────────────────
-  qualitySelector.addEventListener('click', (e) => {
-    const chip = e.target.closest('.chip');
-    if (!chip) return;
-    triggerHaptic(20);
-    document.querySelectorAll('.quality-chips .chip').forEach((c) => c.classList.remove('active'));
-    chip.classList.add('active');
-    selectedQuality = chip.dataset.quality;
-  });
+  // ── Format & Quality Selectors ───────────────────────────────────────────
+  function getVideoQualityLabel(q) {
+    if (q === '2160') return '4K';
+    if (q === '1080') return '1080p';
+    if (q === '720') return '720p';
+    return `${q}p`;
+  }
+
+  function updateCtaButtonText() {
+    const isVideo = selectedFormat === 'video';
+    const qLabel = isVideo ? getVideoQualityLabel(selectedVideoQuality) : `${selectedAudioQuality}kbps`;
+
+    if (downloadBtn.disabled && !activeEntity) {
+      btnText.textContent = isVideo
+        ? `Download ${qLabel} MP4 Video`
+        : `Convert ${qLabel} MP3`;
+      return;
+    }
+    if (!activeEntity) {
+      btnText.textContent = isVideo
+        ? `Download ${qLabel} MP4 Video`
+        : 'Convert & Download MP3';
+      return;
+    }
+    if (activeEntity.type === 'multi') {
+      const total = activeEntity.total_tracks || (activeEntity.urls ? activeEntity.urls.length : 0);
+      btnText.textContent = isVideo
+        ? `Download ${total} Video${total > 1 ? 's' : ''} (${qLabel})`
+        : `Convert ${total} Track${total > 1 ? 's' : ''} (MP3)`;
+    } else if (activeEntity.type === 'playlist') {
+      btnText.textContent = isVideo
+        ? `Download Playlist (${activeEntity.count} Videos)`
+        : `Convert Playlist (${activeEntity.count} Tracks)`;
+    } else {
+      btnText.textContent = isVideo
+        ? `Download ${qLabel} MP4 Video`
+        : `Convert ${qLabel} MP3`;
+    }
+  }
+
+  function setFormat(format) {
+    if (selectedFormat === format) return;
+    selectedFormat = format;
+    triggerHaptic(25);
+
+    if (format === 'audio') {
+      if (formatAudioBtn) formatAudioBtn.classList.add('active');
+      if (formatVideoBtn) formatVideoBtn.classList.remove('active');
+      if (audioQualitySelector) audioQualitySelector.style.display = 'flex';
+      if (videoQualitySelector) videoQualitySelector.style.display = 'none';
+      if (qualityLabel) qualityLabel.textContent = 'AUDIO BITRATE';
+    } else {
+      if (formatVideoBtn) formatVideoBtn.classList.add('active');
+      if (formatAudioBtn) formatAudioBtn.classList.remove('active');
+      if (audioQualitySelector) audioQualitySelector.style.display = 'none';
+      if (videoQualitySelector) videoQualitySelector.style.display = 'flex';
+      if (qualityLabel) qualityLabel.textContent = 'VIDEO RESOLUTION';
+    }
+    updateCtaButtonText();
+  }
+
+  if (formatAudioBtn) formatAudioBtn.addEventListener('click', () => setFormat('audio'));
+  if (formatVideoBtn) formatVideoBtn.addEventListener('click', () => setFormat('video'));
+
+  if (audioQualitySelector) {
+    audioQualitySelector.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      triggerHaptic(20);
+      audioQualitySelector.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      selectedAudioQuality = chip.dataset.quality;
+      updateCtaButtonText();
+    });
+  }
+
+  if (videoQualitySelector) {
+    videoQualitySelector.addEventListener('click', (e) => {
+      const chip = e.target.closest('.chip');
+      if (!chip) return;
+      triggerHaptic(20);
+      videoQualitySelector.querySelectorAll('.chip').forEach((c) => c.classList.remove('active'));
+      chip.classList.add('active');
+      selectedVideoQuality = chip.dataset.quality;
+      updateCtaButtonText();
+    });
+  }
 
   // ── Auto-Download Toggle ─────────────────────────────────────────────────
   if (autoDownloadToggle) {
@@ -336,13 +421,13 @@ document.addEventListener('DOMContentLoaded', () => {
         urls: urls
       };
       downloadBtn.disabled = false;
-      btnText.textContent = `Convert ${urls.length} Track${urls.length > 1 ? 's' : ''} (MP3)`;
+      updateCtaButtonText();
       previewCard.classList.remove('visible');
     } else {
       if (currentMode === 'multi') {
         activeEntity = null;
         downloadBtn.disabled = true;
-        btnText.textContent = 'Convert & Download MP3';
+        updateCtaButtonText();
       }
     }
   });
@@ -386,7 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
   });
 
   // ── Preview Renderers ────────────────────────────────────────────────────
-  function showLoadingPreview(text = 'Resolving audio streams...') {
+  function showLoadingPreview(text = 'Resolving media streams...') {
     previewCard.classList.add('visible');
     previewSpinner.classList.add('visible');
     updateLoadingMessage(text);
@@ -401,7 +486,7 @@ document.addEventListener('DOMContentLoaded', () => {
     previewSpinner.classList.remove('visible');
     previewContent.classList.remove('visible');
     downloadBtn.disabled = true;
-    btnText.textContent = 'Convert & Download MP3';
+    updateCtaButtonText();
     activeEntity = null;
   }
 
@@ -435,11 +520,11 @@ document.addEventListener('DOMContentLoaded', () => {
     previewTrackCount.textContent = data.type === 'playlist' ? `${data.count} Tracks` : '1 Track';
 
     downloadBtn.disabled = false;
-    btnText.textContent = data.type === 'playlist' ? `Convert Playlist (${data.count} Tracks)` : `Convert ${selectedQuality}kbps MP3`;
+    updateCtaButtonText();
 
     // ⚡ Auto-Download Feature: Trigger conversion hands-free once resolved
     if (autoDownload) {
-      btnText.textContent = '⚡ Auto-Converting MP3...';
+      btnText.textContent = selectedFormat === 'video' ? '⚡ Auto-Downloading Video...' : '⚡ Auto-Converting MP3...';
       autoDownloadTimer = setTimeout(() => {
         if (activeEntity && !downloadBtn.disabled) {
           downloadBtn.click();
@@ -473,10 +558,10 @@ document.addEventListener('DOMContentLoaded', () => {
     multiTreeWrap.innerHTML = html;
 
     downloadBtn.disabled = data.total_tracks === 0;
-    btnText.textContent = `Convert Multi-Link Batch (${data.total_tracks} Tracks)`;
+    updateCtaButtonText();
 
     if (autoDownload && data.total_tracks > 0) {
-      btnText.textContent = '⚡ Auto-Converting Multi Batch...';
+      btnText.textContent = selectedFormat === 'video' ? '⚡ Auto-Downloading Multi Batch...' : '⚡ Auto-Converting Multi Batch...';
       autoDownloadTimer = setTimeout(() => {
         if (activeEntity && !downloadBtn.disabled) {
           downloadBtn.click();
@@ -543,25 +628,34 @@ document.addEventListener('DOMContentLoaded', () => {
       : extractUrls(urlInput.value);
 
     if (urls.length === 0) {
-      showNotification('Please enter at least one valid audio URL');
+      showNotification('Please enter at least one valid media URL');
       return;
     }
 
+    const activeQuality = selectedFormat === 'video' ? selectedVideoQuality : selectedAudioQuality;
+    const isVideo = selectedFormat === 'video';
+
     downloadBtn.disabled = true;
-    btnText.textContent = 'Extracting Audio...';
+    btnText.textContent = isVideo ? 'Downloading Video...' : 'Extracting Audio...';
     progressPanel.classList.remove('completed', 'done');
     progressPanel.classList.add('visible');
+
+    // Ensure pause and cancel buttons are visible during download
+    if (progressControlsRow) progressControlsRow.style.display = 'flex';
+    if (pauseResumeBtn) pauseResumeBtn.style.display = '';
+    if (cancelBtn) cancelBtn.style.display = '';
+
     tracklistProgress.innerHTML = '';
     progressBarFill.style.width = '0%';
     percentageLabel.textContent = '0%';
-    statusLabel.textContent = 'Starting download...';
+    statusLabel.textContent = isVideo ? 'Starting video download...' : 'Starting audio download...';
     if (speedLabel) speedLabel.textContent = '⚡ Starting...';
-    if (countLabel) countLabel.textContent = `${urls.length} Track${urls.length > 1 ? 's' : ''}`;
+    if (countLabel) countLabel.textContent = `${urls.length} ${isVideo ? 'Video' : 'Track'}${urls.length > 1 ? 's' : ''}`;
     if (etaLabel) etaLabel.textContent = '⏱️ Calculating...';
 
     // 100% On-Device Engine execution
     if (usesOnDeviceEngine()) {
-      window.Android.convertOnDevice(JSON.stringify(urls), selectedQuality);
+      window.Android.convertOnDevice(JSON.stringify(urls), activeQuality, selectedFormat);
       return;
     }
 
@@ -570,7 +664,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const res = await localFetch('/api/download', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls, quality: selectedQuality })
+        body: JSON.stringify({ urls, quality: activeQuality, format: selectedFormat })
       });
 
       if (!res.ok) {
@@ -603,22 +697,28 @@ document.addEventListener('DOMContentLoaded', () => {
         const avgPercent = total > 0 ? Math.round(sumPercent / total) : 0;
         progressBarFill.style.width = `${avgPercent}%`;
         percentageLabel.textContent = `${avgPercent}%`;
-        statusLabel.textContent = `Converting ${total} Tracks...`;
+        statusLabel.textContent = `Processing ${total} items...`;
       } else if (data.status === 'completed' || data.status === 'done') {
         activeEventSource.close();
         stopEtaCountdown();
+        // Hide pause and cancel options once download finishes
+        if (progressControlsRow) progressControlsRow.style.display = 'none';
+        if (pauseResumeBtn) pauseResumeBtn.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
         progressPanel.classList.add('completed');
         progressBarFill.style.width = '100%';
         percentageLabel.textContent = '100%';
-        statusLabel.textContent = '✓ Conversion Complete!';
-        btnText.textContent = 'Convert Another MP3';
+        const isVideo = selectedFormat === 'video';
+        statusLabel.textContent = isVideo ? '✓ Video Download Complete!' : '✓ Conversion Complete!';
+        btnText.textContent = isVideo ? 'Download Another Video' : 'Convert Another MP3';
         downloadBtn.disabled = false;
         triggerHaptic(80);
       } else if (data.status === 'error') {
         activeEventSource.close();
         stopEtaCountdown();
         progressPanel.classList.remove('completed', 'done');
-        statusLabel.textContent = `Error: ${data.error || 'Conversion failed'}`;
+        statusLabel.textContent = `Error: ${data.error || 'Operation failed'}`;
         downloadBtn.disabled = false;
         btnText.textContent = 'Retry Download';
       }
@@ -696,34 +796,42 @@ document.addEventListener('DOMContentLoaded', () => {
         resetControlButtons();
         progressPanel.classList.remove('visible', 'completed', 'done');
         downloadBtn.disabled = false;
-        btnText.textContent = 'Convert & Download MP3';
+        updateCtaButtonText();
         showNotification('Task cancelled');
       } else if (event.kind === 'complete') {
         stopEtaCountdown();
         resetControlButtons();
+        // Hide pause and cancel options once download finishes
+        if (progressControlsRow) progressControlsRow.style.display = 'none';
+        if (pauseResumeBtn) pauseResumeBtn.style.display = 'none';
+        if (cancelBtn) cancelBtn.style.display = 'none';
+
         // Stop loading animation immediately & show solid emerald complete state
         progressPanel.classList.add('completed');
         progressBarFill.style.width = '100%';
         percentageLabel.textContent = '100%';
         const count = event.count || 1;
         const total = event.total || count;
+        const isVideo = event.is_video || selectedFormat === 'video';
         if (countLabel) countLabel.textContent = `${count}/${total} Done`;
         if (speedLabel) speedLabel.textContent = '⚡ Complete';
         if (etaLabel) etaLabel.textContent = '⏱️ 00:00';
-        statusLabel.textContent = `✓ Saved ${count} MP3 file(s) to Downloads/AudioRip`;
-        btnText.textContent = 'Convert Another MP3';
+        statusLabel.textContent = isVideo
+          ? `✓ Saved ${count} MP4 video(s) to Downloads/AudioRip`
+          : `✓ Saved ${count} MP3 file(s) to Downloads/AudioRip`;
+        btnText.textContent = isVideo ? 'Download Another Video' : 'Convert Another MP3';
         downloadBtn.disabled = false;
         triggerHaptic(80);
-        showNotification(`Saved ${count} MP3 to Downloads/AudioRip 🎵`);
+        showNotification(isVideo ? `Saved ${count} MP4 to Downloads/AudioRip 🎬` : `Saved ${count} MP3 to Downloads/AudioRip 🎵`);
       } else if (event.kind === 'error') {
         stopEtaCountdown();
         resetControlButtons();
         progressPanel.classList.remove('completed', 'done');
-        statusLabel.textContent = `Error: ${event.message || 'Conversion failed'}`;
+        statusLabel.textContent = `Error: ${event.message || 'Operation failed'}`;
         btnText.textContent = 'Try Again';
         downloadBtn.disabled = false;
-        showErrorPreview(event.message || 'Conversion failed');
-        showNotification(event.message || 'Conversion failed');
+        showErrorPreview(event.message || 'Operation failed');
+        showNotification(event.message || 'Operation failed');
       }
     } catch (err) {
       console.error('Invalid native event received:', err);
@@ -731,7 +839,7 @@ document.addEventListener('DOMContentLoaded', () => {
   };
 
   // ── In-App Update System & Changelog Viewer (GitHub Releases) ─────────────
-  const CURRENT_VERSION = '1.1.3';
+  const CURRENT_VERSION = '1.1.4';
 
   const GITHUB_REPO = 'SujalBhure/audiorip';
   
